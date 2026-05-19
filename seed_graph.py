@@ -5,7 +5,7 @@ Run from the repo root: python seed_graph.py
 """
 import requests, sys
 
-BASE = "http://localhost:8002/api/v1"
+BASE = "http://localhost:8000/api/v1"
 
 # ── Auth ──────────────────────────────────────────────────────────────────
 r = requests.post(f"{BASE}/auth/login", json={"username": "admin", "password": "changeme123"})
