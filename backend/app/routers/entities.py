@@ -67,9 +67,12 @@ def get_related_for_entity(
     related_logic = []
     for lr in db.query(LogicRule).filter(LogicRule.ontology_id == ontology_id).all():
         try:
-            linked = lr.linked_entities  # property getter already returns list
+            linked = lr.linked_entities or []
             if isinstance(linked, str):
-                linked = _json.loads(linked)
+                try:
+                    linked = _json.loads(linked)
+                except _json.JSONDecodeError:
+                    linked = []
         except Exception:
             linked = []
         if isinstance(linked, list) and name_cn in linked:
@@ -88,7 +91,7 @@ def get_related_for_entity(
         if isinstance(linked, str):
             try:
                 linked = _json.loads(linked)
-            except Exception:
+            except _json.JSONDecodeError:
                 linked = []
         if isinstance(linked, list) and name_cn in linked:
             related_actions.append({

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional
 from app.deps import get_db, get_current_user
@@ -317,10 +317,10 @@ def delete_prompt(prompt_id: str, db: Session = Depends(get_db), _=Depends(get_c
 
 @router.post("/generate-template")
 def generate_prompt_template(
-    domain: str,
-    style: str = "ontology_extraction",
+    domain: str = Query(..., description="业务域"),
+    style: str = Query("ontology_extraction", description="提示词风格"),
     db: Session = Depends(get_db),
-    _=Depends(get_current_user),
+    current_user=Depends(get_current_user),
 ):
     """Use LLM to generate a prompt template for a given business domain"""
     from app.services.llm_service import _call_llm
