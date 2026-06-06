@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
-import { settingsApi, usersApi } from '@/api/ontologies'
-import { Trash2, Plus, Pencil, X, Check } from 'lucide-react'
+import { settingsApi, usersApi, promptApi } from '@/api/ontologies'
+import { Trash2, Plus, Pencil, X, Check, ChevronDown, ChevronRight, Sparkles } from 'lucide-react'
 import {
   EXTRACTION_RULES,
   VALIDATION_RULES,
@@ -14,7 +14,7 @@ import {
   type ExtractionRuleState,
 } from '@/utils/extractionRules'
 
-type ActiveTab = 'rules' | 'extraction_rules' | 'users'
+type ActiveTab = 'rules' | 'extraction_rules' | 'users' | 'prompts'
 
 export default function SettingsPage() {
   const { t, i18n } = useTranslation()
@@ -26,6 +26,15 @@ export default function SettingsPage() {
   const [showCreateUser, setShowCreateUser] = useState(false)
   const [userMsg, setUserMsg] = useState('')
   const [editingUserId, setEditingUserId] = useState<string | null>(null)
+
+  // Prompts tab state
+  const [showCreatePrompt, setShowCreatePrompt] = useState(false)
+  const [promptMsg, setPromptMsg] = useState('')
+  const [expandedPromptId, setExpandedPromptId] = useState<string | null>(null)
+  const [promptName, setPromptName] = useState('')
+  const [promptDomain, setPromptDomain] = useState('通用')
+  const [promptContent, setPromptContent] = useState('')
+  const [isGenerating, setIsGenerating] = useState(false)
 
   const { register: regUser, handleSubmit: handleUserSubmit, reset: resetUser } =
     useForm<{ username: string; email: string; password: string; role: string }>()
@@ -85,6 +94,41 @@ export default function SettingsPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
   })
 
+  const { data: prompts = [], isLoading: promptsLoading } = useQuery({
+    queryKey: ['prompts'],
+    queryFn: () => promptApi.list() as any,
+    enabled: activeTab === 'prompts',
+  })
+
+  const createPromptMut = useMutation({
+    mutationFn: (data: { name: string; domain: string; content: string; version: string }) =>
+      promptApi.create(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['prompts'] })
+      setShowCreatePrompt(false)
+      setPromptName('')
+      setPromptDomain('通用')
+      setPromptContent('')
+      setPromptMsg('提示词创建成功')
+      setTimeout(() => setPromptMsg(''), 3000)
+    },
+    onError: (e: any) => setPromptMsg(`创建失败：${e?.detail || e?.message || ''}`),
+  })
+
+  async function handleGenerateTemplate() {
+    if (!promptDomain) return
+    setIsGenerating(true)
+    try {
+      const result = await promptApi.generateTemplate(promptDomain) as any
+      setPromptContent(result.content ?? result)
+    } catch (e: any) {
+      setPromptMsg(`生成失败：${e?.detail || e?.message || ''}`)
+      setTimeout(() => setPromptMsg(''), 3000)
+    } finally {
+      setIsGenerating(false)
+    }
+  }
+
   function startEditUser(u: any) {
     setEditingUserId(u.id)
     resetEdit({ username: u.username, email: u.email ?? '', password: '', role: u.role })
@@ -110,6 +154,7 @@ export default function SettingsPage() {
     { key: 'rules', label: t('settings.rules') },
     { key: 'extraction_rules', label: t('settings.tab_extraction') },
     { key: 'users', label: t('settings.tab_users') },
+    { key: 'prompts', label: '提示词模版' },
   ]
 
   return (
@@ -221,6 +266,120 @@ export default function SettingsPage() {
                 )
               })}
             </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'prompts' && (
+        <div className="max-w-2xl">
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-sm text-gray-500">管理提示词模版，用于知识图谱抽取</p>
+            <button
+              onClick={() => { setShowCreatePrompt(v => !v); setPromptMsg('') }}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-black text-white rounded-lg text-sm">
+              <Plus size={14} /> 新建提示词
+            </button>
+          </div>
+
+          {promptMsg && (
+            <p className={`text-xs mb-3 ${promptMsg.includes('成功') ? 'text-green-600' : 'text-red-500'}`}>{promptMsg}</p>
+          )}
+
+          {showCreatePrompt && (
+            <div className="bg-gray-50 border rounded-lg p-4 mb-4">
+              <h4 className="font-medium text-sm mb-3">创建提示词模版</h4>
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">名称 *</label>
+                    <input
+                      value={promptName}
+                      onChange={e => setPromptName(e.target.value)}
+                      placeholder="提示词名称"
+                      className="w-full border rounded-lg px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">领域 *</label>
+                    <select
+                      value={promptDomain}
+                      onChange={e => setPromptDomain(e.target.value)}
+                      className="w-full border rounded-lg px-3 py-2 text-sm">
+                      {['供应链', '法律', '医疗', 'HR', '财务', '教育', '通用', '其他'].map(d => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs text-gray-500">内容 *</label>
+                    <button
+                      type="button"
+                      onClick={handleGenerateTemplate}
+                      disabled={isGenerating}
+                      className="flex items-center gap-1 px-2.5 py-1 border border-gray-300 rounded text-xs text-gray-700 hover:bg-gray-100 disabled:opacity-50">
+                      <Sparkles size={12} />
+                      {isGenerating ? '生成中...' : '✨ 一键生成模版'}
+                    </button>
+                  </div>
+                  <textarea
+                    value={promptContent}
+                    onChange={e => setPromptContent(e.target.value)}
+                    placeholder="输入提示词内容，或点击右上角一键生成..."
+                    rows={8}
+                    className="w-full border rounded-lg px-3 py-2 text-sm font-mono resize-y"
+                  />
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <button
+                    type="button"
+                    onClick={() => { setShowCreatePrompt(false); setPromptName(''); setPromptDomain('通用'); setPromptContent('') }}
+                    className="px-3 py-1.5 border rounded-lg text-sm">
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    disabled={createPromptMut.isPending || !promptName.trim() || !promptContent.trim()}
+                    onClick={() => createPromptMut.mutate({ name: promptName.trim(), domain: promptDomain, content: promptContent.trim(), version: '1.0' })}
+                    className="px-3 py-1.5 bg-black text-white rounded-lg text-sm disabled:opacity-50">
+                    {createPromptMut.isPending ? '保存中...' : '确认保存'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="bg-white border rounded-lg overflow-hidden">
+            {promptsLoading ? (
+              <p className="text-center text-gray-400 py-6 text-sm">加载中...</p>
+            ) : (prompts as any[]).length === 0 ? (
+              <p className="text-center text-gray-400 py-6 text-sm">暂无提示词模版</p>
+            ) : (
+              <div className="divide-y">
+                {(prompts as any[]).map((p: any) => (
+                  <div key={p.id}>
+                    <button
+                      onClick={() => setExpandedPromptId(expandedPromptId === p.id ? null : p.id)}
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 text-left">
+                      <span className="text-gray-400 flex-shrink-0">
+                        {expandedPromptId === p.id ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                      </span>
+                      <span className="flex-1 text-sm font-medium">{p.name}</span>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{p.domain}</span>
+                      <span className="text-xs text-gray-400">v{p.version}</span>
+                    </button>
+                    {expandedPromptId === p.id && (
+                      <div className="px-4 pb-4">
+                        <pre className="text-xs text-gray-600 bg-gray-50 rounded-lg p-3 whitespace-pre-wrap font-mono max-h-60 overflow-y-auto">
+                          {p.content}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

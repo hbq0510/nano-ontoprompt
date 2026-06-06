@@ -56,6 +56,8 @@ export const promptApi = {
   get: (id: string) => apiClient.get<Prompt>(`/prompts/${id}`),
   update: (id: string, body: Partial<Prompt>) => apiClient.put<Prompt>(`/prompts/${id}`, body),
   delete: (id: string) => apiClient.delete(`/prompts/${id}`),
+  generateTemplate: (domain: string) =>
+    apiClient.post<{ domain: string; content: string }>(`/prompts/generate-template?domain=${encodeURIComponent(domain)}&style=ontology_extraction`, {}),
 }
 
 export const modelApi = {
