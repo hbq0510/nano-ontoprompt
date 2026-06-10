@@ -367,49 +367,29 @@ class DocumentToMarkdownStep(PipelineStep):
 
     def _load_vlm_model_config(self, model_id: str | None = None):
         try:
-            from app.database import SessionLocal
-            from app.models.model_config import ModelConfig
-
-            db = SessionLocal()
-            try:
-                query = db.query(ModelConfig).filter(ModelConfig.config_type == "llm")
-                cfg = query.filter(ModelConfig.id == model_id).first() if model_id else None
-                if cfg:
-                    return cfg
-                configs = query.order_by(ModelConfig.updated_at.desc()).all()
-                for item in configs:
-                    tags = (item.options or {}).get("usage_tags") or []
-                    if "VLM提取" in tags:
-                        return item
-                for item in configs:
-                    options = item.options or {}
-                    model_names = " ".join(item.models or []).lower()
-                    provider = (item.provider or "").lower()
-                    modalities = " ".join(str(x).lower() for x in options.get("modalities", []))
-                    if (
-                        "vision" in modalities
-                        or "image" in modalities
-                        or any(token in model_names for token in ("omni", "vlm", "vision", "multimodal"))
-                        or any(token in provider for token in ("omni", "vlm"))
-                    ):
-                        return item
-                return configs[0] if configs else None
-            finally:
-                db.close()
+            from app.services.model_config_selector import select_llm_model_config
+            return select_llm_model_config(
+                model_id=model_id,
+                purpose_tags=("VLM提取", "vlm", "vision"),
+                allow_vlm=True,
+            )
         except Exception:
             return None
 
     def _call_vlm(self, model_config, image_bytes: bytes, mime_type: str | None, filename: str, spec: dict) -> str:
-        from app.services import encryption_service
+        from app.services.model_config_selector import llm_call_kwargs
 
-        api_key = encryption_service.decrypt(model_config.api_key_encrypted) if model_config.api_key_encrypted else ""
-        model_name = (model_config.models or ["gpt-4o-mini"])[0]
+        call_kwargs = llm_call_kwargs(model_config)
+        if not call_kwargs:
+            raise RuntimeError("No model configured for VLM extraction")
         prompt = spec.get("prompt") or (
             "Extract all visible text, tables, headings, entities, dates, numbers and business rules from this document image. "
             "Return concise Markdown only. Preserve tables as Markdown tables when possible."
         )
         encoded = base64.b64encode(image_bytes).decode("ascii")
         if model_config.provider == "anthropic":
+            api_key = call_kwargs["api_key"]
+            model_name = call_kwargs["model"]
             import anthropic
 
             client = anthropic.Anthropic(api_key=api_key)
@@ -442,10 +422,10 @@ class DocumentToMarkdownStep(PipelineStep):
             ]},
         ]
         return _call_llm(
-            model_config.provider,
-            api_key,
-            model_config.api_base,
-            model_name,
+            call_kwargs["provider"],
+            call_kwargs["api_key"],
+            call_kwargs["api_base"],
+            call_kwargs["model"],
             messages,
             json_mode=False,
         )

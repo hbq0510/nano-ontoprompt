@@ -54,3 +54,26 @@ def test_translate_uses_llm_when_available():
         plan = svc.translate("有哪些供应商")
     assert plan.cypher == expected.cypher
     assert plan.confidence == 0.95
+
+
+def test_llm_translate_uses_configured_model():
+    svc = NL2CypherService()
+    payload = {
+        "cypher": "MATCH (n) WHERE n.ontology_id = $ontology_id RETURN n LIMIT 20",
+        "explanation": "查询节点",
+        "confidence": 0.91,
+    }
+    with patch("app.services.model_config_selector.select_llm_model_config", return_value=object()), \
+         patch("app.services.model_config_selector.llm_call_kwargs", return_value={
+             "provider": "compatible",
+             "api_key": "test-key",
+             "api_base": "https://api.deepseek.com",
+             "model": "deepseek-v4-flash",
+         }), \
+         patch("app.services.llm_service._call_llm", return_value=__import__("json").dumps(payload)) as mock_call:
+        plan = svc._llm_translate("有哪些节点", {})
+
+    assert plan.confidence == 0.91
+    assert mock_call.call_args.kwargs["provider"] == "compatible"
+    assert mock_call.call_args.kwargs["api_base"] == "https://api.deepseek.com"
+    assert mock_call.call_args.kwargs["model"] == "deepseek-v4-flash"

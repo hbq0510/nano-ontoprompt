@@ -59,6 +59,33 @@ def test_suggest_falls_back_to_rules_on_llm_error():
     assert len(suggestion.field_mappings) == len(COLUMNS)
 
 
+def test_llm_suggest_uses_configured_model():
+    mapper = make_mapper()
+    payload = {
+        "entity_class": "SupplierOrder",
+        "entity_class_cn": "供应商订单",
+        "description": "供应商订单实体",
+        "primary_key_column": "order_id",
+        "field_mappings": [
+            {"column": "order_id", "property": "order_id", "type": "string", "confidence": 0.9, "reason": "主键"},
+        ],
+    }
+    with patch("app.services.model_config_selector.select_llm_model_config", return_value=object()), \
+         patch("app.services.model_config_selector.llm_call_kwargs", return_value={
+             "provider": "compatible",
+             "api_key": "test-key",
+             "api_base": "https://api.deepseek.com",
+             "model": "deepseek-v4-flash",
+         }), \
+         patch("app.services.llm_service._call_llm", return_value=__import__("json").dumps(payload)) as mock_call:
+        suggestion = mapper._llm_suggest("supplier_orders", ["order_id"], SAMPLE_ROWS, "供应链")
+
+    assert suggestion.entity_class == "SupplierOrder"
+    assert mock_call.call_args.kwargs["provider"] == "compatible"
+    assert mock_call.call_args.kwargs["api_base"] == "https://api.deepseek.com"
+    assert mock_call.call_args.kwargs["model"] == "deepseek-v4-flash"
+
+
 # ── 链接建议测试 ──────────────────────────────────────────────────────
 
 def test_suggest_links_detects_foreign_key():

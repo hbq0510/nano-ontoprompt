@@ -128,9 +128,16 @@ class AutoMapper:
 }}"""
 
         from app.services import llm_service
+        from app.services.model_config_selector import llm_call_kwargs, select_llm_model_config
+        call_kwargs = llm_call_kwargs(select_llm_model_config(
+            self._db,
+            purpose_tags=("Ontology映射", "Mapping建议", "自动映射"),
+            allow_vlm=False,
+        ))
+        if not call_kwargs:
+            raise RuntimeError("No LLM model config available for mapping suggestion")
         raw = llm_service._call_llm(
-            provider="openai", api_key="", api_base=None,
-            model="gpt-4o-mini",
+            **call_kwargs,
             messages=[
                 {"role": "system", "content": "你是数据建模专家，输出 JSON。"},
                 {"role": "user", "content": prompt},

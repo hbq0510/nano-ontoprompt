@@ -228,6 +228,17 @@ def test_md_to_structured_llm_failure_graceful():
     assert "structured_extraction_error" in result[0]
 
 
+def test_md_to_structured_auto_extract_accepts_records_object():
+    step = MarkdownToStructuredStep()
+    payload = '{"records":[{"record_id":"policy:1","row_type":"section","title":"Policy"}]}'
+    with patch("app.services.v2.pipeline.steps.md_to_structured._call_with_model", return_value=payload):
+        result = step._auto_extract_with_llm([SAMPLE_MD_ROW], MagicMock())
+
+    assert result is not None
+    assert result[0]["record_id"] == "policy:1"
+    assert result[0]["row_type"] == "section"
+
+
 def test_md_to_structured_no_markdown_text():
     """markdown_text 없는 row는 그대로 통과"""
     step = MarkdownToStructuredStep()

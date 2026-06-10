@@ -111,9 +111,38 @@ def test_create_mapping_persists_primary_key_column():
 def test_display_name_uses_order_line_identity():
     svc = MappingService(MagicMock())
     mapping = make_mapping_obj()
+    mapping.entity_class = "PurchaseItem"
     row = {"order_id": "PO-2024-0001", "items.sku": "STL-001", "供应商名称": "天钢原材料有限公司"}
 
     assert svc._display_name(mapping, row, "__row_hash__", 0) == "PO-2024-0001 / STL-001"
+
+
+def test_display_name_uses_order_id_for_order_entity():
+    svc = MappingService(MagicMock())
+    mapping = make_mapping_obj()
+    mapping.entity_class = "SupplierOrders"
+    row = {"order_id": "PO-2024-0001", "items.sku": "STL-001", "items.name": "钢材Q235"}
+
+    assert svc._display_name(mapping, row, "__row_hash__", 0) == "PO-2024-0001"
+
+
+def test_rows_to_entities_merges_duplicate_order_primary_key():
+    mapping = make_mapping_obj({
+        "order_id": "order_id",
+        "items.sku": "items_sku",
+        "__primary_key__": "order_id",
+    })
+    mapping.entity_class = "SupplierOrders"
+    svc = MappingService(MagicMock())
+
+    entities = svc._rows_to_entities(mapping, [
+        {"order_id": "PO-2024-0001", "items.sku": "STL-001"},
+        {"order_id": "PO-2024-0001", "items.sku": "STL-002"},
+    ])
+
+    assert len(entities) == 1
+    assert entities[0]["name_cn"] == "PO-2024-0001"
+    assert entities[0]["source_row_count"] == 2
 
 
 def test_display_name_uses_inventory_transaction_identity():
@@ -203,3 +232,20 @@ def test_display_name_uses_route_c_record_identity_before_filename():
     assert svc._display_name(mapping, row, "__row_hash__", 1) == (
         "supply_chain_strategy.md / 供应商风险管理 #2"
     )
+
+
+def test_llm_detect_fk_accepts_links_object():
+    svc = MappingService(MagicMock())
+    payload = '{"links":[{"column":"供应商","relation_type":"HAS_SUP"}]}'
+
+    with patch("app.services.model_config_selector.select_llm_model_config", return_value=object()), \
+         patch("app.services.model_config_selector.llm_call_kwargs", return_value={
+             "provider": "compatible",
+             "api_key": "test-key",
+             "api_base": "https://api.deepseek.com",
+             "model": "deepseek-v4-flash",
+         }), \
+         patch("app.services.llm_service._call_llm", return_value=payload):
+        result = svc._llm_detect_fk(["供应商", "数量"], "Supplier", "supplier_database")
+
+    assert result == [("供应商", "HAS_SUP")]

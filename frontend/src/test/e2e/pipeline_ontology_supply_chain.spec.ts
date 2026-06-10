@@ -193,7 +193,10 @@ test.describe('Supply chain pipeline to ontology mapping', () => {
     await expect(page.locator('text=Create').first()).toBeVisible()
     await shot(page, outDir, '08-ontology-actions')
 
-    await page.click('button:has-text("图谱")')
+    await page.goto(`${BASE}/ontologies/${ontologyId}?tab=graph`)
+    await expect(page.locator('text=/SQLite 图谱|Neo4j 已连接/')).toBeVisible({ timeout: 15000 })
+    await expect(page.getByTestId('ontology-graph-canvas')).toBeVisible({ timeout: 15000 })
+    await page.waitForTimeout(1200)
     await shot(page, outDir, '09-ontology-graph')
 
     fs.writeFileSync(path.join(outDir, 'result.json'), JSON.stringify({

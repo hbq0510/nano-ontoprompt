@@ -31,11 +31,64 @@ def get_graph(ontology_id: str, limit: int = 200, label_filter: str | None = Non
     """온톨로지 그래프 데이터 반환 (Neovis.js 호환 포맷)"""
     svc = get_neo4j()
     if not svc.available:
-        return {"nodes": [], "edges": [], "neo4j_available": False}
+        return _sqlite_graph_data(ontology_id, limit=limit, label_filter=label_filter)
     data = svc.get_graph_data(ontology_id, limit=limit, label_filter=label_filter)
     data["neo4j_available"] = True
     svc.close()
     return data
+
+
+def _sqlite_graph_data(ontology_id: str, limit: int = 200, label_filter: str | None = None) -> dict:
+    from app.models.entity import Entity
+    from app.models.relation import Relation
+
+    db = SessionLocal()
+    try:
+        query = db.query(Entity).filter(Entity.ontology_id == ontology_id)
+        if label_filter:
+            query = query.filter(Entity.type == label_filter)
+        entities = query.limit(limit).all()
+        entity_ids = {e.id for e in entities}
+        relations = db.query(Relation).filter(Relation.ontology_id == ontology_id).all()
+        edges = [
+            {
+                "id": r.id,
+                "source": r.source_entity,
+                "target": r.target_entity,
+                "type": r.type or "RELATED",
+                "properties": r.properties or {},
+            }
+            for r in relations
+            if r.source_entity in entity_ids and r.target_entity in entity_ids
+        ]
+        nodes = [
+            {
+                "id": e.id,
+                "labels": [e.type or "OntologyEntity"],
+                "properties": {
+                    **(e.properties or {}),
+                    "id": e.id,
+                    "source_id": e.id,
+                    "ontology_id": ontology_id,
+                    "name_cn": e.name_cn or "",
+                    "name_en": e.name_en or "",
+                    "name": e.name_cn or e.name_en or e.id,
+                    "type": e.type or "",
+                    "description": e.description or "",
+                    "confidence": e.confidence or 1.0,
+                    "version": e.version or "v0.1",
+                },
+            }
+            for e in entities
+        ]
+        return {
+            "nodes": nodes,
+            "edges": edges,
+            "neo4j_available": False,
+            "fallback": "sqlite",
+        }
+    finally:
+        db.close()
 
 
 @router.get("/{ontology_id}/graph/quality")

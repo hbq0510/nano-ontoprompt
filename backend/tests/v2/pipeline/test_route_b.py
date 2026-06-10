@@ -124,6 +124,20 @@ def test_execute_route_b_json():
     assert ctx2.rows_out == 2
 
 
+def test_execute_route_b_json_preserves_jagged_rows():
+    ctx = make_ctx({"format": "json", "json_flatten": {"array_explode": True}})
+    data = [
+        {"order_id": "PO-1", "items": [{"sku": "A"}], "logistics": {"actual_days": 3}},
+        {"order_id": "PO-2", "items": [{"sku": "B"}], "logistics": {"actual_days": 6, "delay_reason": "天气"}},
+    ]
+
+    result, ctx2 = execute_route_b(ctx, data)
+
+    assert ctx2.rows_out == 2
+    assert {row["order_id"] for row in result} == {"PO-1", "PO-2"}
+    assert any(row.get("logistics.delay_reason") == "天气" for row in result)
+
+
 def test_execute_route_b_xml():
     ctx = make_ctx({"format": "xml", "xml_parse": {"record_path": ".//record"}})
     xml_str = "<root><record><name>Test</name></record></root>"

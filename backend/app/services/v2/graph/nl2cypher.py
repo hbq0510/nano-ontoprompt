@@ -18,6 +18,9 @@ class CypherPlan:
 class NL2CypherService:
     """将自然语言查询转换为 Cypher 语句"""
 
+    def __init__(self, db=None):
+        self._db = db
+
     # 内置安全 Cypher 模式（自然语言关键词 → 模板）
     SAFE_PATTERNS = [
         ("有哪些", "MATCH (n) WHERE n.ontology_id = $ontology_id RETURN n LIMIT 50"),
@@ -54,9 +57,16 @@ class NL2CypherService:
 {{"cypher": "MATCH ...", "explanation": "查询说明", "confidence": 0.9}}"""
 
         from app.services import llm_service
+        from app.services.model_config_selector import llm_call_kwargs, select_llm_model_config
+        call_kwargs = llm_call_kwargs(select_llm_model_config(
+            self._db,
+            purpose_tags=("NL2Cypher", "图谱查询", "Cypher生成"),
+            allow_vlm=False,
+        ))
+        if not call_kwargs:
+            raise RuntimeError("No LLM model config available for NL2Cypher")
         raw = llm_service._call_llm(
-            provider="openai", api_key="", api_base=None,
-            model="gpt-4o-mini",
+            **call_kwargs,
             messages=[
                 {"role": "system", "content": "你是 Neo4j Cypher 专家。只输出 JSON。"},
                 {"role": "user", "content": prompt},

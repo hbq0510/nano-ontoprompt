@@ -83,8 +83,8 @@ class MappingService:
 
             pk_col = (m.field_mapping or {}).get("__primary_key__") or self._choose_pk_col(rows)
             entity_id_map = {
-                self._row_identity_value(row, pk_col): e["id"]
-                for row, e in zip(rows, entities)
+                self._row_identity_value(row, pk_col): self._stable_row_id(m, row, pk_col if pk_col in row else None)
+                for row in rows
             }
             mapping_meta[m.id] = {
                 "entity_class": m.entity_class, "pk_col": pk_col,
@@ -119,8 +119,10 @@ class MappingService:
                 if m.id not in mapping_meta:
                     continue
                 meta = mapping_meta[m.id]
-                for row, eid in zip(meta["rows"], meta.get("entity_id_map", {}).values()):
-                    all_entities.append({"id": eid, "type": m.entity_class, "properties": row})
+                for row in meta["rows"]:
+                    eid = meta.get("entity_id_map", {}).get(self._row_identity_value(row, meta["pk_col"]))
+                    if eid:
+                        all_entities.append({"id": eid, "type": m.entity_class, "properties": row})
             if all_entities:
                 chroma.upsert_entities(ontology_id, all_entities)
                 chroma_count = len(all_entities)
@@ -278,9 +280,20 @@ class MappingService:
             if col not in field_map:
                 field_map[col] = col
         pk_col = field_map.get("__primary_key__")
+        order_pk_can_merge = (
+            pk_col
+            and pk_col != "__row_hash__"
+            and pk_col in sample
+            and ("order" in (mapping.entity_class or "").lower() or "订单" in str(mapping.entity_class or ""))
+            and all(self._has_display_value(row.get(pk_col)) for row in rows)
+        )
         if (
             not pk_col
-            or (pk_col != "__row_hash__" and (pk_col not in sample or not self._is_unique_col(rows, pk_col)))
+            or (
+                pk_col != "__row_hash__"
+                and not order_pk_can_merge
+                and (pk_col not in sample or not self._is_unique_col(rows, pk_col))
+            )
         ):
             field_map["__primary_key__"] = self._choose_pk_col(rows)
         field_map["__properties__"] = self._property_metadata(rows, field_map)
@@ -437,6 +450,15 @@ class MappingService:
         if row.get("record_id") not in (None, "") and pk_col == "__row_hash__":
             return str(row.get("record_id"))
 
+        entity_class_lower = (mapping.entity_class or "").lower()
+        if "order" in entity_class_lower or "订单" in str(mapping.entity_class or ""):
+            order_label = self._join_display_parts(row, ("order_id", "order_name"), min_parts=1)
+            if order_label:
+                return order_label
+            order_label = self._join_display_parts(row, ("订单号", "订单名称"), min_parts=1)
+            if order_label:
+                return order_label
+
         for cols in (
             ("order_id", "items.sku"),
             ("order_id", "items.name"),
@@ -536,7 +558,7 @@ class MappingService:
         field_map = mapping.field_mapping or {}
         pk_col = field_map.get("__primary_key__") or self._choose_pk_col(rows)
         property_meta = self._property_metadata_by_column(field_map)
-        entities = []
+        entities_by_id: dict[str, dict] = {}
         for index, row in enumerate(rows):
             props: dict = {"ontology_id": mapping.ontology_id}
             for col, prop in field_map.items():
@@ -551,8 +573,13 @@ class MappingService:
             props.update(self._instance_names(mapping, row, pk_col, index))
             props["name"] = props["name_cn"]
             props["object_type"] = mapping.entity_class
-            entities.append(props)
-        return entities
+            if props["id"] in entities_by_id:
+                existing = entities_by_id[props["id"]]
+                existing["source_row_count"] = int(existing.get("source_row_count", 1)) + 1
+                continue
+            props["source_row_count"] = 1
+            entities_by_id[props["id"]] = props
+        return list(entities_by_id.values())
 
     def _write_v1_entities(self, mapping: OntologyMapping, entities: list[dict]) -> int:
         from app.models.entity import Entity
@@ -1024,37 +1051,30 @@ class MappingService:
         """使用用户配置的 LLM 检测中文列名→英文实体名的 FK 关系"""
         try:
             from app.services import llm_service
-            from app.models.model_config import ModelConfig
+            from app.services.model_config_selector import llm_call_kwargs, select_llm_model_config
             import json
 
-            configs = self._db.query(ModelConfig).all()
-            if not configs:
+            call_kwargs = llm_call_kwargs(select_llm_model_config(
+                self._db,
+                purpose_tags=("FK检测", "关系推断", "Link推断"),
+                allow_vlm=False,
+            ))
+            if not call_kwargs:
                 return []
-            mc = next((m for m in configs if m.provider == "compatible"), configs[0])
-            model_name = mc.models[0] if isinstance(mc.models, list) else mc.models
-            if not model_name:
-                return []
-
-            api_key = ""
-            if mc.api_key_encrypted:
-                try:
-                    from app.services import encryption_service
-                    api_key = encryption_service.decrypt(mc.api_key_encrypted)
-                except Exception:
-                    api_key = ""
 
             prompt = f"""判断以下列中哪些是外键指向目标实体。
 源列名: {json.dumps(src_cols, ensure_ascii=False)}
 目标实体: {tgt_entity_class}
 目标数据集: {tgt_dataset_name}
 规则：列名语义关联目标实体（如中文"供应商"→Supplier），或列值像ID。
-返回JSON数组 [{{"column":"列名","relation_type":"HAS_XXX"}}]，无匹配返回[]。只返回JSON。"""
+返回JSON对象 {{"links":[{{"column":"列名","relation_type":"HAS_XXX"}}]}}，无匹配返回 {{"links":[]}}。只返回JSON。"""
             raw = llm_service._call_llm(
-                provider=mc.provider, api_key=api_key, api_base=mc.api_base,
-                model=model_name,
+                **call_kwargs,
                 messages=[{"role": "system", "content": "输出JSON。"}, {"role": "user", "content": prompt}]
             )
             result = json.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(result, dict):
+                result = result.get("links", [])
             if isinstance(result, list):
                 return [(r["column"], r["relation_type"]) for r in result if r.get("column")]
             return []

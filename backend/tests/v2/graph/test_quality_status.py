@@ -49,3 +49,29 @@ def test_integration_status_reports_neo4j_and_chroma():
     assert result["chroma"]["available"] is True
     assert result["chroma"]["entity_count"] == 42
     fake_neo.close.assert_called_once()
+
+
+def test_sqlite_graph_fallback_returns_nodes_and_edges(db):
+    ontology_id = "ont-sqlite-graph"
+    db.add_all([
+        Entity(id="supplier-1", ontology_id=ontology_id, name_cn="供应商A", name_en="Supplier A", type="SupplierDatabase", properties={}),
+        Entity(id="order-1", ontology_id=ontology_id, name_cn="PO-1", name_en="PO-1", type="SupplierOrders", properties={}),
+    ])
+    db.add(Relation(
+        id="rel-1",
+        ontology_id=ontology_id,
+        source_entity="order-1",
+        target_entity="supplier-1",
+        type="HAS_SUP",
+        properties={"source": "test"},
+    ))
+    db.commit()
+
+    with patch.object(graph_router, "SessionLocal", return_value=db):
+        result = graph_router._sqlite_graph_data(ontology_id)
+
+    assert result["neo4j_available"] is False
+    assert result["fallback"] == "sqlite"
+    assert {node["id"] for node in result["nodes"]} == {"supplier-1", "order-1"}
+    assert result["edges"][0]["source"] == "order-1"
+    assert result["edges"][0]["target"] == "supplier-1"

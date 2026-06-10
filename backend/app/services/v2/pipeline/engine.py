@@ -26,6 +26,10 @@ def execute_route_b(ctx: PipelineContext, data: list[dict]) -> tuple[list[dict],
 
     data_format = ctx.spec.get("format", "json")  # json | xml
 
+    cleansing = dict(ctx.spec.get("cleansing") or {})
+    cleansing.setdefault("filter_jagged", False)
+    ctx.spec["cleansing"] = cleansing
+
     if data_format == "xml":
         steps = [XmlParseStep(), CleansingStep()]
     else:

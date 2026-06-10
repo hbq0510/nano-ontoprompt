@@ -4,7 +4,7 @@ from app.deps import get_db, get_current_user
 from app.models.model_config import ModelConfig
 from app.models.user import User
 from app.schemas.model_config import ModelConfigCreate, ModelConfigUpdate, ModelConfigOut
-from app.services.encryption_service import encrypt, decrypt
+from app.services.encryption_service import encrypt
 import uuid
 
 router = APIRouter()
@@ -100,20 +100,24 @@ def test_model(model_id: str, db: Session = Depends(get_db), _=Depends(get_curre
         if (c.config_type or "llm") != "llm":
             return {"data": {"ok": True, "response": f"Config type configured: {c.config_type}"}}
 
-        api_key = decrypt(c.api_key_encrypted or "")
+        from app.services.model_config_selector import llm_call_kwargs
+        call_kwargs = llm_call_kwargs(c)
+        if not call_kwargs:
+            raise ValueError("Model config must include at least one model name")
+        api_key = call_kwargs["api_key"]
         if c.provider == "anthropic":
             import anthropic
             client = anthropic.Anthropic(api_key=api_key)
-            model = c.models[0] if c.models else "claude-3-5-haiku-20241022"
+            model = call_kwargs["model"]
             resp = client.messages.create(model=model, max_tokens=10, messages=[{"role": "user", "content": "ping"}])
             return {"data": {"ok": True, "response": resp.content[0].text}}
         else:
             import openai
             kwargs = {"api_key": api_key}
-            if c.api_base:
-                kwargs["base_url"] = c.api_base
+            if call_kwargs["api_base"]:
+                kwargs["base_url"] = call_kwargs["api_base"]
             client = openai.OpenAI(**kwargs)
-            model = c.models[0] if c.models else "gpt-4o-mini"
+            model = call_kwargs["model"]
             resp = client.chat.completions.create(model=model, messages=[{"role": "user", "content": "ping"}], max_tokens=10)
             return {"data": {"ok": True, "response": resp.choices[0].message.content}}
     except Exception as e:

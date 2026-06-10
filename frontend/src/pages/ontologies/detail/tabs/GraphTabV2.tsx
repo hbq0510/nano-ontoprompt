@@ -10,6 +10,7 @@ interface GraphData {
   nodes: Array<{ id: string; labels: string[]; properties: Record<string, unknown> }>
   edges: Array<{ id: string; source: string; target: string; type: string }>
   neo4j_available: boolean
+  fallback?: string
 }
 
 interface GraphQuality {
@@ -27,23 +28,34 @@ interface IntegrationStatus {
 type QueryMode = 'natural' | 'cypher'
 
 const TYPE_COLORS: Record<string, string> = {
-  Supplier: '#3b82f6', supplier: '#3b82f6', 供应商: '#3b82f6',
-  Product: '#10b981', product: '#10b981', 产品: '#10b981',
-  Material: '#f59e0b', material: '#f59e0b', 物料: '#f59e0b',
-  Organization: '#8b5cf6', organization: '#8b5cf6', 组织: '#8b5cf6',
-  Order: '#ef4444', order: '#ef4444', 订单: '#ef4444',
-  Customer: '#06b6d4', customer: '#06b6d4', 客户: '#06b6d4',
-  Process: '#ec4899', process: '#ec4899', 流程: '#ec4899',
-  Document: '#f97316', document: '#f97316', 文档: '#f97316',
+  Supplier: '#2563eb', supplier: '#2563eb', SupplierDatabase: '#2563eb', 供应商: '#2563eb',
+  Product: '#059669', product: '#059669', 产品: '#059669',
+  Material: '#d97706', material: '#d97706', InventoryTransactions: '#f59e0b', 物料: '#d97706',
+  Organization: '#7c3aed', organization: '#7c3aed', 组织: '#7c3aed',
+  Order: '#dc2626', order: '#dc2626', SupplierOrders: '#dc2626', 订单: '#dc2626',
+  Customer: '#0891b2', customer: '#0891b2', 客户: '#0891b2',
+  Process: '#db2777', process: '#db2777', LogisticsPerformance: '#db2777', 流程: '#db2777',
+  Document: '#ea580c', document: '#ea580c', ProcurementPolicy: '#7c3aed', SupplyChainReview: '#14b8a6', SupplyChainStrategy: '#65a30d', WarehouseManagement: '#64748b', 文档: '#ea580c',
   Disease: '#ef4444', 疾病: '#ef4444',
   Drug: '#10b981', 药物: '#10b981',
+}
+
+const FALLBACK_COLORS = [
+  '#2563eb', '#059669', '#dc2626', '#7c3aed', '#d97706',
+  '#0891b2', '#db2777', '#4f46e5', '#65a30d', '#be123c',
+]
+
+function stableColor(value: string): string {
+  let hash = 0
+  for (let i = 0; i < value.length; i += 1) hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0
+  return FALLBACK_COLORS[Math.abs(hash) % FALLBACK_COLORS.length]
 }
 
 function nodeColor(labels: string[]): string {
   for (const l of labels) {
     if (TYPE_COLORS[l]) return TYPE_COLORS[l]
   }
-  return '#6b7280'
+  return stableColor(labels[0] || 'Entity')
 }
 
 export default function GraphTabV2({ ontologyId }: { ontologyId: string }) {
@@ -54,7 +66,7 @@ export default function GraphTabV2({ ontologyId }: { ontologyId: string }) {
 
   const [graphData, setGraphData] = useState<GraphData | null>(null)
   const [loading, setLoading] = useState(true)
-  const [hideIsolated, setHideIsolated] = useState(true)
+  const [hideIsolated, setHideIsolated] = useState(false)
   const [queryMode, setQueryMode] = useState<QueryMode>('natural')
   const [query, setQuery] = useState('')
   const [queryLoading, setQueryLoading] = useState(false)
@@ -110,9 +122,10 @@ export default function GraphTabV2({ ontologyId }: { ontologyId: string }) {
       const localizedName = i18n.language?.startsWith('zh')
         ? (n.properties?.name_cn || n.properties?.display_name || n.properties?.name)
         : (n.properties?.name_en || n.properties?.display_name || n.properties?.name_cn || n.properties?.name)
-      const label = String(localizedName || n.labels[0] || n.id).slice(0, 20)
+      const degree = degreeMap.get(n.id) ?? 0
+      const label = String(localizedName || n.labels[0] || n.id).slice(0, degree === 0 ? 12 : 20)
       const labelLen = label.length
-      const size = labelLen > 8 ? 88 : labelLen > 5 ? 72 : 60
+      const size = degree === 0 ? 34 : labelLen > 8 ? 88 : labelLen > 5 ? 72 : 60
       return {
         data: {
           id: n.id,
@@ -120,7 +133,7 @@ export default function GraphTabV2({ ontologyId }: { ontologyId: string }) {
           color,
           size,
           textMaxWidth: size - 12,
-          degree: degreeMap.get(n.id) ?? 0,
+          degree,
           entityId: String(n.properties?.source_id || n.properties?.id || ''),
         }
       }
@@ -198,16 +211,48 @@ export default function GraphTabV2({ ontologyId }: { ontologyId: string }) {
         },
       ],
       layout: {
-        name: cytoscapeEdges.length > 0 ? 'breadthfirst' : 'cose',
+        name: 'cose',
         animate: false,
-        directed: true,
-        spacingFactor: 1.3,
-        ...(cytoscapeEdges.length > 0 ? {} : {
-          nodeRepulsion: () => 8000, idealEdgeLength: () => 120,
-          gravity: 0.05, numIter: 1000, nodeDimensionsIncludeLabels: true,
-        }),
+        randomize: true,
+        nodeRepulsion: () => 12000,
+        nodeOverlap: 18,
+        idealEdgeLength: () => 150,
+        edgeElasticity: () => 80,
+        nestingFactor: 1.15,
+        gravity: 0.08,
+        componentSpacing: 120,
+        numIter: 1600,
+        initialTemp: 180,
+        coolingFactor: 0.95,
+        minTemp: 1.0,
+        nodeDimensionsIncludeLabels: true,
       } as any,
     })
+
+    const spreadIsolatedNodes = () => {
+      const isolated = cy.nodes().filter(node => (node.data('degree') ?? 0) === 0)
+      if (isolated.length > 0 && containerRef.current) {
+        const width = Math.max(containerRef.current.clientWidth * 2.4, 1800)
+        const height = Math.max(containerRef.current.clientHeight * 2.2, 1100)
+        const center = { x: width / 2, y: height / 2 }
+        const radius = Math.min(width, height) * 0.46
+        const xScale = width / height
+        const goldenAngle = Math.PI * (3 - Math.sqrt(5))
+        isolated.forEach((node, i) => {
+          const t = (i + 1) / isolated.length
+          const r = Math.sqrt(t) * radius
+          const a = i * goldenAngle
+          node.position({
+            x: center.x + Math.cos(a) * r * xScale,
+            y: center.y + Math.sin(a) * r,
+          })
+        })
+        cy.fit(cy.elements(), 28)
+      }
+    }
+
+    cy.one('layoutstop', spreadIsolatedNodes)
+    window.setTimeout(spreadIsolatedNodes, 100)
 
     cy.on('tap', 'node', evt => {
       const nodeData = evt.target.data()
@@ -259,6 +304,8 @@ export default function GraphTabV2({ ontologyId }: { ontologyId: string }) {
   if (loading) return <div className="text-gray-400 text-sm py-8 text-center">加载中...</div>
 
   const neo4jOk = graphData?.neo4j_available
+  const graphSource = neo4jOk ? 'Neo4j 已连接' : graphData?.fallback === 'sqlite' ? 'SQLite 图谱' : 'Neo4j 未连接'
+  const graphSourceOk = Boolean(neo4jOk || graphData?.fallback === 'sqlite')
   const nodes = graphData?.nodes ?? []
   const edges = graphData?.edges ?? []
 
@@ -285,9 +332,9 @@ export default function GraphTabV2({ ontologyId }: { ontologyId: string }) {
     <div className="space-y-4">
       {/* 状态栏 */}
       <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
-        <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full border ${neo4jOk ? 'border-green-200 bg-green-50 text-green-700' : 'border-gray-200 bg-gray-50'}`}>
-          <span className={`w-1.5 h-1.5 rounded-full ${neo4jOk ? 'bg-green-500' : 'bg-gray-300'}`} />
-          {neo4jOk ? 'Neo4j 已连接' : 'Neo4j 未连接'}
+        <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full border ${graphSourceOk ? 'border-green-200 bg-green-50 text-green-700' : 'border-gray-200 bg-gray-50'}`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${graphSourceOk ? 'bg-green-500' : 'bg-gray-300'}`} />
+          {graphSource}
         </span>
         <span>节点 {nodes.length}</span>
         <span>边 {edges.length}</span>
@@ -331,11 +378,11 @@ export default function GraphTabV2({ ontologyId }: { ontologyId: string }) {
 
       {/* Cytoscape 图谱画布 */}
       {hasData ? (
-        <div ref={containerRef} className="border rounded-xl bg-white" style={{ height: 500 }} />
+        <div ref={containerRef} data-testid="ontology-graph-canvas" className="border rounded-xl bg-white" style={{ height: 500 }} />
       ) : (
         <div className="border rounded-xl bg-gray-50 h-64 flex items-center justify-center">
           <p className="text-sm text-gray-400">
-            {neo4jOk ? '该本体暂无图谱数据' : '启动 Neo4j 服务后图谱将在此显示'}
+            {graphSourceOk ? '该本体暂无图谱数据' : '启动 Neo4j 服务后图谱将在此显示'}
           </p>
         </div>
       )}

@@ -11,18 +11,12 @@ logger = logging.getLogger(__name__)
 def _get_first_model(model_id: str | None = None):
     """DB 에서 사용할 LLM 모델 설정 반환"""
     try:
-        from app.database import SessionLocal
-        from app.models.model_config import ModelConfig
-        db = SessionLocal()
-        try:
-            query = db.query(ModelConfig).filter(ModelConfig.config_type == "llm")
-            if model_id:
-                selected = query.filter(ModelConfig.id == model_id).first()
-                if selected:
-                    return selected
-            return query.order_by(ModelConfig.updated_at.desc()).first()
-        finally:
-            db.close()
+        from app.services.model_config_selector import select_llm_model_config
+        return select_llm_model_config(
+            model_id=model_id,
+            purpose_tags=("结构化抽取", "LLM结构化", "llm_structurize"),
+            allow_vlm=False,
+        )
     except Exception:
         return None
 
@@ -32,13 +26,14 @@ def _call_with_model(model_config, messages: list[dict]) -> str | None:
     if not model_config:
         return None
     try:
-        from app.services import encryption_service
         from app.services.llm_service import _call_llm
-        api_key = encryption_service.decrypt(model_config.api_key_encrypted) if model_config.api_key_encrypted else ""
-        model_name = (model_config.models or ["gpt-3.5-turbo"])[0]
+        from app.services.model_config_selector import llm_call_kwargs
+        call_kwargs = llm_call_kwargs(model_config)
+        if not call_kwargs:
+            return None
         return _call_llm(
-            model_config.provider, api_key, model_config.api_base,
-            model_name, messages
+            **call_kwargs,
+            messages=messages,
         )
     except Exception as e:
         logger.info(f"LLM call failed: {e}")
@@ -77,7 +72,7 @@ class MarkdownToStructuredStep(PipelineStep):
 {text}
 
 출력 형식 (JSON만, 설명 없이):
-[{{"record_id": "stable_id", "row_type": "table_row|rule|section|item", "field1": "extracted_value1"}}]"""
+{{"records": [{{"record_id": "stable_id", "row_type": "table_row|rule|section|item", "field1": "extracted_value1"}}]}}"""
 
     def run(self, ctx: PipelineContext, data: list[dict]) -> list[dict]:
         spec = ctx.spec.get("md_to_structured", {})
@@ -156,7 +151,10 @@ class MarkdownToStructuredStep(PipelineStep):
                     text = re.search(r'```(?:json)?\s*([\s\S]+?)```', text)
                     text = text.group(1).strip() if text else resp
                 extracted = json.loads(text)
-                records = extracted if isinstance(extracted, list) else [extracted]
+                if isinstance(extracted, dict) and isinstance(extracted.get("records"), list):
+                    records = extracted["records"]
+                else:
+                    records = extracted if isinstance(extracted, list) else [extracted]
                 for idx, item in enumerate(records):
                     if not isinstance(item, dict):
                         continue
