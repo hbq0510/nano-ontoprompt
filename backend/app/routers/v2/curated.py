@@ -14,6 +14,34 @@ logger = logging.getLogger(__name__)
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
+def _ensure_legacy_curated_dataset(db: Session, dataset_id: str):
+    from app.models.v2.dataset import Dataset
+
+    legacy = db.query(CuratedDataset).filter(CuratedDataset.id == dataset_id).first()
+    if legacy:
+        return legacy
+
+    ds_v2 = db.query(Dataset).filter(Dataset.id == dataset_id, Dataset.kind == "curated").first()
+    if not ds_v2:
+        return None
+
+    quality = None
+    schema = dict(ds_v2.schema_json or {})
+    if isinstance(schema, dict):
+        quality = schema.get("quality_score")
+
+    legacy = CuratedDataset(
+        id=ds_v2.id,
+        name=ds_v2.name,
+        schema_json=schema,
+        quality_score=quality,
+        status="pending_review",
+    )
+    db.add(legacy)
+    db.flush()
+    return legacy
+
+
 def get_db():
     db = SessionLocal()
     try:
@@ -148,12 +176,9 @@ def submit_review(
     _admin=Depends(require_admin),  # PRD Security Logic: only admin can approve curated rows
 ):
     """提交审核结果（approve/reject）"""
-    ds = db.query(CuratedDataset).filter(CuratedDataset.id == dataset_id).first()
+    ds = _ensure_legacy_curated_dataset(db, dataset_id)
     if not ds:
-        from app.models.v2.dataset import Dataset
-        ds_v2 = db.query(Dataset).filter(Dataset.id == dataset_id, Dataset.kind == "curated").first()
-        if not ds_v2:
-            raise HTTPException(404, "Curated dataset not found")
+        raise HTTPException(404, "Curated dataset not found")
 
     from datetime import datetime, timezone
     review = CuratedReview(

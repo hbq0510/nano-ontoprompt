@@ -264,6 +264,30 @@ def _execute_route(route: str, ctx, data: list[dict]) -> tuple[list[dict], objec
     return execute_route_a(ctx, data)
 
 
+def _ensure_legacy_curated_dataset(db, dataset_obj, quality_score: float | None = None) -> None:
+    from app.models.v2.curated import CuratedDataset
+
+    legacy = db.query(CuratedDataset).filter(CuratedDataset.id == dataset_obj.id).first()
+    schema = dict(dataset_obj.schema_json or {})
+    if quality_score is not None:
+        schema["quality_score"] = quality_score
+
+    if legacy:
+        legacy.name = dataset_obj.name
+        legacy.schema_json = schema
+        if quality_score is not None:
+            legacy.quality_score = quality_score
+        return
+
+    db.add(CuratedDataset(
+        id=dataset_obj.id,
+        name=dataset_obj.name,
+        schema_json=schema,
+        quality_score=quality_score,
+        status="pending_review",
+    ))
+
+
 def _safe_csv_bytes(data: list[dict]) -> bytes:
     import csv
     import io
@@ -311,20 +335,27 @@ def _save_curated_dataset(db, svc, pl, source: dict, data: list[dict], ctx, mult
     curated_ds = svc.create_dataset(name=ds_name, kind="curated")
     svc.create_version(curated_ds.id, _safe_csv_bytes(data), rowcount=len(data))
 
+    quality_score = None
     if data:
         try:
             # 赋新 dict, 原地修改 JSON 列不会被 SQLAlchemy 跟踪
             schema = dict(curated_ds.schema_json or {})
-            schema["quality_score"] = _compute_quality_score(data, source["route"], ctx.meta)
+            quality_score = _compute_quality_score(data, source["route"], ctx.meta)
+            schema["quality_score"] = quality_score
             schema["columns"] = [k for k in data[0].keys() if k != "content"]
             schema["route"] = source["route"]
             schema["source_dataset_id"] = source["dataset_id"]
             if table_name:
                 schema["transform_output_table"] = table_name
             curated_ds.schema_json = schema
-            db.commit()
         except Exception:
             pass
+
+    try:
+        _ensure_legacy_curated_dataset(db, curated_ds, quality_score=quality_score)
+        db.commit()
+    except Exception:
+        db.rollback()
 
     return {
         "source_dataset_id": source["dataset_id"],

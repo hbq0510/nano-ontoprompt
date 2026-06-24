@@ -94,7 +94,11 @@ def _call_llm(provider: str, api_key: str, api_base: str | None, model: str, mes
         return ("{" + resp.content[0].text) if json_mode else resp.content[0].text
     else:
         import openai
-        kwargs = {"api_key": api_key}
+        kwargs = {}
+        if api_key:
+            kwargs["api_key"] = api_key
+        elif provider == "compatible":
+            kwargs["api_key"] = "dummy"
         if api_base:
             kwargs["base_url"] = api_base
         client = openai.OpenAI(**kwargs)

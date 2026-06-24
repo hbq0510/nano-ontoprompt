@@ -6,7 +6,7 @@ services:
       POSTGRES_DB: ontoprompt
       POSTGRES_USER: ontoprompt
       POSTGRES_PASSWORD: ontoprompt
-    ports: ["5432:5432"]
+    ports: ["8432:5432"]
     volumes: [pg_data:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ontoprompt"]
@@ -16,7 +16,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports: ["6379:6379"]
+    ports: ["8379:6379"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -26,8 +26,8 @@ services:
   neo4j:
     image: neo4j:5.20-community
     ports:
-      - "7474:7474"
-      - "7687:7687"
+      - "8474:7474"
+      - "8687:7687"
     environment:
       NEO4J_AUTH: neo4j/ontoprompt123
     volumes: [neo4j_data:/data]
@@ -40,8 +40,8 @@ services:
   minio:
     image: minio/minio:latest
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "19000:9000"
+      - "19001:9001"
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
@@ -55,7 +55,7 @@ services:
 
   chromadb:
     image: chromadb/chroma:0.5.20
-    ports: ["8001:8000"]
+    ports: ["18021:8000"]
     volumes: [chroma_data:/chroma/chroma]
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/api/v1/heartbeat || exit 1"]
@@ -65,7 +65,7 @@ services:
 
   backend:
     build: ./backend
-    ports: ["8000:8000"]
+    ports: ["18020:8000"]
     env_file: .env
     depends_on:
       db:

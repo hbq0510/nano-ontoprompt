@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   Plus, Search, Play, GitBranch, Database, Trash2,
   ExternalLink, ChevronDown, ChevronUp, X, Loader2
@@ -61,17 +61,25 @@ export default function PipelineListPage() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center gap-3">
         <div>
           <h2 className="text-lg font-semibold">Pipeline 列表</h2>
           <p className="text-xs text-gray-400 mt-0.5">管理数据管道，从数据接入到输出 Curated Dataset</p>
         </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-black text-white text-sm rounded-lg hover:bg-gray-800"
-        >
-          <Plus size={14} /> 新建 Pipeline
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            to="/pipelines/curated"
+            className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 text-sm rounded-lg hover:bg-gray-50"
+          >
+            <Database size={14} /> 查看 Curated 数据集
+          </Link>
+          <button
+            onClick={() => setShowCreate(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-black text-white text-sm rounded-lg hover:bg-gray-800"
+          >
+            <Plus size={14} /> 新建 Pipeline
+          </button>
+        </div>
       </div>
 
       {/* Filters */}

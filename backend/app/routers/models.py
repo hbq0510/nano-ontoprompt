@@ -113,7 +113,11 @@ def test_model(model_id: str, db: Session = Depends(get_db), _=Depends(get_curre
             return {"data": {"ok": True, "response": resp.content[0].text}}
         else:
             import openai
-            kwargs = {"api_key": api_key}
+            kwargs = {}
+            if api_key:
+                kwargs["api_key"] = api_key
+            elif c.provider == "compatible":
+                kwargs["api_key"] = "dummy"
             if call_kwargs["api_base"]:
                 kwargs["base_url"] = call_kwargs["api_base"]
             client = openai.OpenAI(**kwargs)

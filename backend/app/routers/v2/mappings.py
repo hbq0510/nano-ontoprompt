@@ -10,6 +10,34 @@ from app.deps import get_current_user
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
+def _ensure_legacy_curated_dataset(db: Session, dataset_id: str | None):
+    if not dataset_id:
+        return None
+    from app.models.v2.curated import CuratedDataset
+    from app.models.v2.dataset import Dataset
+
+    legacy = db.query(CuratedDataset).filter(CuratedDataset.id == dataset_id).first()
+    if legacy:
+        return legacy
+
+    ds_v2 = db.query(Dataset).filter(Dataset.id == dataset_id, Dataset.kind == "curated").first()
+    if not ds_v2:
+        return None
+
+    schema = dict(ds_v2.schema_json or {})
+    quality = schema.get("quality_score") if isinstance(schema, dict) else None
+    legacy = CuratedDataset(
+        id=ds_v2.id,
+        name=ds_v2.name,
+        schema_json=schema,
+        quality_score=quality,
+        status="pending_review",
+    )
+    db.add(legacy)
+    db.flush()
+    return legacy
+
+
 def get_db():
     db = SessionLocal()
     try:
@@ -62,6 +90,7 @@ def suggest_mapping(ontology_id: str, body: SuggestRequest, db: Session = Depend
 @router.post("/{ontology_id}/mappings")
 def create_mapping(ontology_id: str, body: CreateMappingRequest, db: Session = Depends(get_db)):
     from app.services.v2.mapping.mapping_service import MappingService
+    _ensure_legacy_curated_dataset(db, body.curated_dataset_id)
     svc = MappingService(db)
     field_mapping = dict(body.field_mapping or {})
     if body.property_mappings:
@@ -186,6 +215,8 @@ def create_link_mapping(ontology_id: str, body: LinkMappingCreate, db: Session =
     from app.models.v2.mapping import OntologyLinkMapping
     from app.services.v2.dataset_service import DatasetService
 
+    _ensure_legacy_curated_dataset(db, body.src_dataset_id)
+    _ensure_legacy_curated_dataset(db, body.tgt_dataset_id)
     svc = DatasetService(db)
     try:
         src_rows = svc.preview(body.src_dataset_id, 1, limit=10000)

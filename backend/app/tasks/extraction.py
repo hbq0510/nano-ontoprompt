@@ -121,6 +121,7 @@ def _fuzzy_resolve_entity(name: str, name_to_id: dict) -> str | None:
 @celery_app.task(bind=True)
 def run_extraction(self, task_id: str):
     from app.database import SessionLocal
+    from app.models import user as _user_model  # noqa: F401
     from app.models.extraction_task import ExtractionTask
     from app.models.file import UploadedFile
     from app.models.model_config import ModelConfig
@@ -429,6 +430,7 @@ def run_extraction(self, task_id: str):
         db.commit()
 
     except Exception as e:
+        db.rollback()
         task = db.query(ExtractionTask).filter(ExtractionTask.id == task_id).first()
         if task:
             task.status = "failed"
