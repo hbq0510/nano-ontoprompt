@@ -429,6 +429,41 @@ def run_extraction(self, task_id: str):
         task.progress = {"stage": "done", "pct": 100}
         db.commit()
 
+        try:
+            from app.services.v2.graph.neo4j_service import Neo4jService
+            neo = Neo4jService()
+            if neo.available:
+                synced_entities = neo.batch_upsert_entities("OntologyEntity", [
+                    {
+                        "id": e.id,
+                        "source_id": e.id,
+                        "ontology_id": task.ontology_id,
+                        "name_cn": e.name_cn or "",
+                        "name_en": e.name_en or "",
+                        "name": e.name_cn or "",
+                        "type": e.type or "",
+                        "description": e.description or "",
+                        "confidence": e.confidence or 1.0,
+                        "version": e.version or "v0.1",
+                        **(e.properties or {}),
+                    }
+                    for e in db.query(Entity).filter(Entity.ontology_id == task.ontology_id).all()
+                ], key_field="id")
+                synced_relations = 0
+                for r in db.query(Relation).filter(Relation.ontology_id == task.ontology_id).all():
+                    if neo.upsert_relation(
+                        "OntologyEntity", r.source_entity,
+                        "OntologyEntity", r.target_entity,
+                        (r.type or "RELATED").upper().replace(" ", "_").replace("-", "_"),
+                        props={"ontology_id": task.ontology_id, "confidence": r.confidence or 1.0},
+                    ):
+                        synced_relations += 1
+                task.progress = {"stage": "done", "pct": 100, "neo4j_synced": synced_entities + synced_relations}
+                db.commit()
+                neo.close()
+        except Exception:
+            pass  # Neo4j sync is best-effort, don't fail the extraction
+
     except Exception as e:
         db.rollback()
         task = db.query(ExtractionTask).filter(ExtractionTask.id == task_id).first()

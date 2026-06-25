@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { ontologyApi } from '@/api/ontologies'
+import { ontologyApi, promptApi } from '@/api/ontologies'
 import { apiClientV2 } from '@/api/client'
 import { DOMAINS } from '@/types/ontology'
 import { Zap, GitBranch, ArrowLeft, ArrowRight, Loader2, CheckSquare, Square, CheckCircle, XCircle } from 'lucide-react'
@@ -18,6 +18,11 @@ interface CuratedDataset {
 interface MappingSuggestion {
   entity_class: string; entity_class_cn: string; primary_key_column: string
   field_mappings: { column_name: string; property_name: string }[]
+}
+interface PromptOption {
+  id: string
+  name: string
+  domain: string
 }
 
 const BUILD_PHASES = [
@@ -41,6 +46,7 @@ export default function OntologyCreateWizard() {
   const [mode, setMode] = useState<Mode>('simple_llm')
   const [name, setName] = useState('')
   const [domain, setDomain] = useState(DOMAINS[0])
+  const [selectedPromptId, setSelectedPromptId] = useState('')
   const [desc, setDesc] = useState('')
   const [error, setError] = useState('')
 
@@ -57,16 +63,41 @@ export default function OntologyCreateWizard() {
   const [buildError, setBuildError] = useState('')
   const [readyForReview, setReadyForReview] = useState(false)
 
+  const { data: prompts = [] } = useQuery({
+    queryKey: ['prompts'],
+    queryFn: () => promptApi.list() as any,
+  })
+
+  const promptOptions = (prompts as PromptOption[]) || []
+  const selectedPrompt = promptOptions.find((p) => p.id === selectedPromptId) || null
+
   const createMut = useMutation({
-    mutationFn: () => ontologyApi.create({ name, domain, description: desc, build_mode: mode }),
+    mutationFn: () => ontologyApi.create({
+      name,
+      domain: mode === 'simple_llm' ? (selectedPrompt?.domain || domain) : domain,
+      description: desc,
+      build_mode: mode,
+    }),
     onSuccess: (res: any) => {
       qc.invalidateQueries({ queryKey: ['ontologies'] })
       qc.invalidateQueries({ queryKey: ['stats'] })
-      if (mode === 'simple_llm') navigate(`/ontologies/${res.id}?tab=files`)
-      else { setCreatedOntologyId(res.id); setStep('select_datasets') }
+      if (mode === 'simple_llm') {
+        const query = selectedPromptId ? `?tab=files&prompt_id=${encodeURIComponent(selectedPromptId)}` : '?tab=files'
+        navigate(`/ontologies/${res.id}${query}`)
+      } else {
+        setCreatedOntologyId(res.id)
+        setStep('select_datasets')
+      }
     },
     onError: (e: any) => { setError(e?.message || e?.detail?.message || '创建失败') },
   })
+
+  useEffect(() => {
+    if (mode !== 'simple_llm') return
+    if (!selectedPromptId && promptOptions.length > 0) {
+      setSelectedPromptId(promptOptions[0].id)
+    }
+  }, [mode, promptOptions, selectedPromptId])
 
   useEffect(() => {
     if (step !== 'select_datasets') return
@@ -191,14 +222,33 @@ export default function OntologyCreateWizard() {
         <div className="bg-white rounded-xl border p-6 space-y-4">
           <div><label className="block text-xs font-medium text-gray-600 mb-1">名称 *</label>
             <input value={name} onChange={e => setName(e.target.value)} placeholder="本体名称" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
-          <div><label className="block text-xs font-medium text-gray-600 mb-1">领域 *</label>
-            <select value={domain} onChange={e => setDomain(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm">{DOMAINS.map(d => <option key={d}>{d}</option>)}</select></div>
+          {mode === 'simple_llm' ? (
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">提示词模板 *</label>
+              <select
+                value={selectedPromptId}
+                onChange={e => setSelectedPromptId(e.target.value)}
+                className="w-full border rounded-lg px-3 py-2 text-sm"
+              >
+                <option value="">请选择提示词模板</option>
+                {promptOptions.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}（{p.domain}）</option>
+                ))}
+              </select>
+              {selectedPrompt && (
+                <p className="text-xs text-gray-400 mt-1">所属领域：{selectedPrompt.domain}</p>
+              )}
+            </div>
+          ) : (
+            <div><label className="block text-xs font-medium text-gray-600 mb-1">领域 *</label>
+              <select value={domain} onChange={e => setDomain(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm">{DOMAINS.map(d => <option key={d}>{d}</option>)}</select></div>
+          )}
           <div><label className="block text-xs font-medium text-gray-600 mb-1">描述（可选）</label>
             <textarea value={desc} onChange={e => setDesc(e.target.value)} rows={2} placeholder="简要描述本体用途" className="w-full border rounded-lg px-3 py-2 text-sm resize-none" /></div>
           {error && <p className="text-red-500 text-xs">{error}</p>}
           <div className="flex justify-between pt-2">
             <button onClick={() => setStep('select_mode')} className="px-4 py-2 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">上一步</button>
-            <button onClick={() => createMut.mutate()} disabled={!name || createMut.isPending}
+            <button onClick={() => createMut.mutate()} disabled={!name || (mode === 'simple_llm' && !selectedPromptId) || createMut.isPending}
               className="px-5 py-2 bg-black text-white rounded-lg text-sm disabled:opacity-40 flex items-center gap-2">
               {createMut.isPending && <Loader2 size={14} className="animate-spin" />}{mode === 'pipeline_mapping' ? '下一步' : '创建本体'}
             </button>

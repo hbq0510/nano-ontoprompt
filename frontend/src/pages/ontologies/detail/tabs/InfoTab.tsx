@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { ontologyApi, promptApi, modelApi } from '@/api/ontologies'
+import { useSearchParams } from 'react-router-dom'
 import { CheckCircle, XCircle, Loader2, ChevronRight, AlertTriangle, AlertCircle, Info } from 'lucide-react'
 import type { OntologyDetail } from '@/types/ontology'
 import { loadRuleStates, getActiveConstraints } from '@/utils/extractionRules'
@@ -128,7 +129,9 @@ function PipelineMappingInfo({ ontology }: { ontology: OntologyDetail }) {
 export default function InfoTab({ ontology }: { ontology: OntologyDetail }) {
   const { t, i18n } = useTranslation()
   const qc = useQueryClient()
-  const [promptId, setPromptId] = useState('')
+  const [searchParams] = useSearchParams()
+  const initialPromptId = searchParams.get('prompt_id') || ''
+  const [promptId, setPromptId] = useState(initialPromptId)
   const [modelId, setModelId] = useState('')
   const [modelName, setModelName] = useState('')
   const [taskStatus, setTaskStatus] = useState<any>(() => {
@@ -145,6 +148,12 @@ export default function InfoTab({ ontology }: { ontology: OntologyDetail }) {
     queryKey: ['files', ontology.id],
     queryFn: () => ontologyApi.listFiles(ontology.id) as any,
   })
+
+  useEffect(() => {
+    if (!initialPromptId) return
+    if (promptId) return
+    setPromptId(initialPromptId)
+  }, [initialPromptId, promptId])
 
   const extractMut = useMutation({
     mutationFn: (constraints: string[]) =>
