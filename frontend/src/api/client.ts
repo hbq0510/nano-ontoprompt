@@ -7,6 +7,15 @@ type ApiClient = {
   delete: <T = any>(url: string, config?: AxiosRequestConfig) => Promise<T>
 }
 
+let _redirectPending = false
+
+function handleAuthExpired() {
+  if (_redirectPending) return
+  _redirectPending = true
+  localStorage.removeItem('token')
+  window.location.href = '/login'
+}
+
 function createApiClient(baseURL: string): ApiClient {
   const client = axios.create({ baseURL })
   client.interceptors.request.use(config => {
@@ -16,7 +25,15 @@ function createApiClient(baseURL: string): ApiClient {
   })
   client.interceptors.response.use(
     res => res.data.data !== undefined ? res.data.data : res.data,
-    err => Promise.reject(err.response?.data ?? err)
+    err => {
+      const status = err.response?.status
+      const isLoginPath = window.location.pathname === '/login'
+      const isAuthApi = err.config?.url?.includes('/auth/')
+      if (status === 401 && !isLoginPath && !isAuthApi) {
+        handleAuthExpired()
+      }
+      return Promise.reject(err.response?.data ?? err)
+    }
   )
   return {
     get: (url, config) => client.get(url, config) as Promise<any>,
