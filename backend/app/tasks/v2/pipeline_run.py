@@ -58,6 +58,38 @@ def _route_for_kind(kind: str | None, default_route: str | None = None) -> str:
     return "A"
 
 
+def _normalize_connector_kind(kind: str | None) -> str:
+    kind = str(kind or "").strip().lower()
+    aliases = {
+        "postgresql": "postgres",
+        "postgres": "postgres",
+        "mysql": "mysql",
+        "mongodb": "mongo",
+        "mongo": "mongo",
+        "rest_api": "rest",
+        "rest": "rest",
+        "file": "file",
+    }
+    return aliases.get(kind, kind)
+
+
+def _kind_for_connector(connector_kind: str, config: dict | None = None) -> str:
+    connector_kind = _normalize_connector_kind(connector_kind)
+    config = config or {}
+    if connector_kind in {"mysql", "postgres"}:
+        return "structured"
+    if connector_kind == "mongo":
+        return "semi"
+    if connector_kind == "rest":
+        fmt = str(config.get("format") or "").lower()
+        if fmt == "xml":
+            return "semi"
+        if fmt in {"pdf", "docx", "pptx", "image"}:
+            return "unstructured"
+        return "structured"
+    return "structured"
+
+
 def _transform_nodes(definition: dict | None) -> list[dict]:
     if not definition:
         return []
@@ -192,6 +224,66 @@ def _find_dataset_for_file(db, filename: str):
     return candidates[0] if candidates else None
 
 
+def _connector_runtime_sources(node_config: dict | None) -> list[dict]:
+    from app.services.connection.registry import get_connector
+
+    node_config = node_config or {}
+    source_type = _normalize_connector_kind(node_config.get("source_type"))
+    if not source_type or source_type == "file":
+        return []
+
+    config_values = dict(node_config.get("config_values") or {})
+    if not config_values:
+        return []
+
+    if source_type in {"mysql", "postgres"} and "connection_string" not in config_values:
+        host = config_values.get("host", "")
+        port = str(config_values.get("port", "") or ("5432" if source_type == "postgres" else "3306"))
+        database = config_values.get("database", "")
+        user = config_values.get("user", "")
+        password = config_values.get("password", "")
+        driver = "postgresql" if source_type == "postgres" else "mysql+pymysql"
+        config_values["connection_string"] = f"{driver}://{user}:{password}@{host}:{port}/{database}"
+
+    connector = get_connector(source_type, config_values)
+    selected_resources = config_values.get("selected_resources") or []
+    if isinstance(selected_resources, str):
+        selected_resources = [selected_resources]
+    selected_resources = [str(r).strip() for r in selected_resources if str(r).strip()]
+
+    configured_resource = (
+        config_values.get("resource")
+        or config_values.get("table")
+        or config_values.get("collection")
+        or config_values.get("endpoint")
+    )
+
+    if selected_resources:
+        resources = selected_resources
+    else:
+        resources = [configured_resource] if configured_resource else connector.list_resources()
+    if not resources and source_type in {"mysql", "postgres"} and config_values.get("query"):
+        resources = [config_values.get("database") or "query_result"]
+    if not resources:
+        return []
+
+    kind = _kind_for_connector(source_type, config_values)
+    sources: list[dict] = []
+    for resource in resources:
+        if not resource:
+            continue
+        sources.append({
+            "dataset_id": None,
+            "resource": str(resource),
+            "filename": str(resource),
+            "route": _route_for_kind(kind, None),
+            "kind": kind,
+            "connector_kind": source_type,
+            "connector_config": config_values,
+        })
+    return sources
+
+
 def _collect_sources(db, pl) -> list[dict]:
     from app.models.v2.dataset import Dataset
 
@@ -200,7 +292,8 @@ def _collect_sources(db, pl) -> list[dict]:
     for node in definition.get("nodes") or []:
         if node.get("type") != "connector":
             continue
-        for file_info in (node.get("config") or {}).get("files", []) or []:
+        node_config = node.get("config") or {}
+        for file_info in node_config.get("files", []) or []:
             filename = file_info.get("name") or file_info.get("filename") or ""
             dataset_id = file_info.get("dataset_id")
             ds = db.query(Dataset).filter(Dataset.id == dataset_id).first() if dataset_id else None
@@ -213,6 +306,8 @@ def _collect_sources(db, pl) -> list[dict]:
                     "route": _route_for_kind(ds.kind, None),
                     "kind": ds.kind,
                 })
+        if not node_config.get("files"):
+            sources.extend(_connector_runtime_sources(node_config))
 
     if not sources and pl.source_dataset_id:
         ds = db.query(Dataset).filter(Dataset.id == pl.source_dataset_id).first()
@@ -224,18 +319,38 @@ def _collect_sources(db, pl) -> list[dict]:
                 "kind": ds.kind,
             })
 
-    # Preserve order while removing duplicate datasets.
-    seen: set[str] = set()
+    # Preserve order while removing duplicate sources.
+    # Dataset-backed sources dedup by dataset_id; runtime connector sources dedup by
+    # connector kind + logical resource name so multi-table database inputs are retained.
+    seen: set[tuple] = set()
     unique_sources = []
     for source in sources:
-        if source["dataset_id"] in seen:
+        if source.get("dataset_id"):
+            key = ("dataset", source["dataset_id"])
+        else:
+            key = (
+                "runtime",
+                source.get("connector_kind"),
+                source.get("resource") or source.get("filename"),
+            )
+        if key in seen:
             continue
-        seen.add(source["dataset_id"])
+        seen.add(key)
         unique_sources.append(source)
     return unique_sources
 
 
 def _load_source_rows(db, svc, source: dict, limit: int = 10000) -> list[dict]:
+    if source.get("connector_kind"):
+        from app.services.connection.registry import get_connector
+
+        connector = get_connector(source["connector_kind"], source.get("connector_config") or {})
+        resource = source.get("resource") or source.get("filename") or ""
+        rows = connector.pull_full(resource)
+        if isinstance(rows, list):
+            return rows[:limit]
+        return rows or []
+
     from app.models.v2.dataset import DatasetVersion
 
     if source["route"] == "C":
@@ -424,7 +539,7 @@ def pipeline_run_task(pipeline_id: str, run_id: str):
 
         transform_route, runtime_spec = _pipeline_runtime_config(pl)
 
-        if sources and not pl.source_dataset_id:
+        if sources and not pl.source_dataset_id and sources[0].get("dataset_id"):
             pl.source_dataset_id = sources[0]["dataset_id"]
             db.commit()
 

@@ -57,9 +57,11 @@ class SQLConnector(ConnectorBase):
 
     def pull_full(self, resource: str) -> list[dict]:
         """查询表全量数据"""
-        import pandas as pd
         query = self._config.get("query") or f"SELECT * FROM {resource}"
-        return pd.read_sql(query, self._get_engine()).to_dict(orient="records")
+        with self._get_engine().connect() as conn:
+            result = conn.execute(text(query))
+            cols = list(result.keys())
+            return [dict(zip(cols, row)) for row in result]
 
     def pull_delta(self, resource: str, since: str | None = None) -> list[dict]:
         """增量数据查询 (基于 watermark_column)"""

@@ -23,6 +23,26 @@ from app.services.connection.registry import get_connector
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
+
+
+def _normalize_runtime_config(kind: str, config: dict) -> dict:
+    cfg = dict(config or {})
+    k = str(kind or '').strip().lower()
+    aliases = {'postgresql': 'postgres', 'mongodb': 'mongo', 'rest_api': 'rest'}
+    k = aliases.get(k, k)
+    if k in {'mysql', 'postgres'} and 'connection_string' not in cfg:
+        host = cfg.get('host', '')
+        port = str(cfg.get('port', '') or ('5432' if k == 'postgres' else '3306'))
+        database = cfg.get('database', '')
+        user = cfg.get('user', '')
+        password = cfg.get('password', '')
+        driver = 'postgresql' if k == 'postgres' else 'mysql+pymysql'
+        cfg['connection_string'] = f"{driver}://{user}:{password}@{host}:{port}/{database}"
+    if k == 'mongo' and 'database' not in cfg and cfg.get('uri'):
+        db_name = str(cfg['uri']).split('/')[-1].split('?')[0]
+        if db_name:
+            cfg['database'] = db_name
+    return cfg
 def get_db():
     db = SessionLocal()
     try:
@@ -91,12 +111,26 @@ class TestConfigBody(BaseModel):
 def test_connection_config(body: TestConfigBody):
     """测试连接配置（无需先创建 Connection，供 Builder 使用）"""
     try:
-        connector = get_connector(body.type, body.config)
+        config = _normalize_runtime_config(body.type, body.config)
+        connector = get_connector(body.type, config)
         ok = connector.test_connection()
         return {"success": ok}
     except Exception as e:
         return {"success": False, "detail": str(e)}
 
+
+
+
+@router.post("/list-resources-config")
+def list_resources_config(body: TestConfigBody):
+    """按给定连接配置返回可选资源列表（表/集合/端点）。"""
+    try:
+        config = _normalize_runtime_config(body.type, body.config)
+        connector = get_connector(body.type, config)
+        resources = connector.list_resources()
+        return {"success": True, "resources": resources}
+    except Exception as e:
+        return {"success": False, "resources": [], "detail": str(e)}
 
 @router.post("/{connection_id}/test")
 def test_connection(connection_id: str, db: Session = Depends(get_db)):

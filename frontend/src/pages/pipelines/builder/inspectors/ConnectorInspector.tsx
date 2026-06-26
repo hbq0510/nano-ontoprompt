@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, X, FileUp, Loader2, CheckCircle, XCircle } from 'lucide-react'
+import { Upload, X, FileUp, Loader2, CheckCircle, XCircle, Database, RefreshCcw } from 'lucide-react'
 import { apiClientV2 } from '@/api/client'
 
 const SOURCE_LABEL: Record<string, string> = { file: '文件上传', postgresql: 'PostgreSQL', mysql: 'MySQL', mongodb: 'MongoDB', rest_api: 'REST API' }
@@ -18,14 +18,20 @@ interface UploadedFileMeta {
   kind?: string
 }
 
+const supportsResourceSelection = (sourceType: string) => ['postgresql', 'mysql', 'mongodb', 'rest_api'].includes(sourceType)
+
 export default function ConnectorInspector({ config, onChange, readOnly = false }: { config: Record<string, unknown>; onChange: (key: string, value: unknown) => void; readOnly?: boolean }) {
   const sourceType = String(config.source_type || 'file')
-  const cv = (config.config_values || {}) as Record<string, string>
+  const cv = (config.config_values || {}) as Record<string, any>
   const storedFiles = (config.files || []) as UploadedFileMeta[]
+  const selectedResources = Array.isArray(cv.selected_resources) ? cv.selected_resources as string[] : []
+  const cachedResources = Array.isArray(cv.available_resources) ? cv.available_resources as string[] : []
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'failed'>('idle')
   const [testMessage, setTestMessage] = useState('')
+  const [loadingResources, setLoadingResources] = useState(false)
+  const [resourceError, setResourceError] = useState('')
   const onDrop = useCallback(async (accepted: File[]) => {
     if (accepted.length === 0) return
     setUploading(true)
@@ -55,6 +61,60 @@ export default function ConnectorInspector({ config, onChange, readOnly = false 
 
   const formatSize = (s: number | undefined) => s ? `(${(s / 1024).toFixed(1)} KB)` : ''
 
+  const updateConfigValues = (patch: Record<string, unknown>) => {
+    onChange('config_values', { ...cv, ...patch })
+  }
+
+  const loadResources = async () => {
+    setLoadingResources(true)
+    setResourceError('')
+    try {
+      const res: any = await apiClientV2.post('/connections/list-resources-config', { type: sourceType, config: cv })
+      if (res?.success === false) throw new Error(res?.detail || '加载失败')
+      const resources = Array.isArray(res?.resources) ? res.resources.map((x: any) => String(x)) : []
+      updateConfigValues({
+        available_resources: resources,
+        selected_resources: selectedResources.filter(x => resources.includes(x)),
+      })
+      if (!resources.length) {
+        setResourceError('未发现可选表/资源')
+      }
+    } catch (e: any) {
+      setResourceError(e?.detail || e?.message || '加载失败')
+    } finally {
+      setLoadingResources(false)
+    }
+  }
+
+  const testConnection = async () => {
+    setTestStatus('testing')
+    setResourceError('')
+    try {
+      if (sourceType === 'file') {
+        setTestStatus(hasStoredFiles ? 'success' : 'failed')
+        setTestMessage(hasStoredFiles ? '就绪' : '请上传')
+        return
+      }
+      const res: any = await apiClientV2.post('/connections/test-config', { type: sourceType, config: cv })
+      if (res?.success === false) throw new Error(res?.detail || '失败')
+      setTestStatus('success')
+      setTestMessage('连接成功')
+      if (supportsResourceSelection(sourceType)) {
+        await loadResources()
+      }
+    } catch (e: any) {
+      setTestStatus('failed')
+      setTestMessage(e?.detail || '失败')
+    }
+  }
+
+  const toggleResource = (resource: string, checked: boolean) => {
+    const next = checked
+      ? [...selectedResources, resource]
+      : selectedResources.filter(x => x !== resource)
+    updateConfigValues({ selected_resources: next })
+  }
+
   if (readOnly) {
     return (
       <div className="space-y-3">
@@ -64,9 +124,12 @@ export default function ConnectorInspector({ config, onChange, readOnly = false 
           {sourceType === 'file' && hasStoredFiles && storedFiles.map((f: any, i: number) => (
             <p key={i} className="text-blue-500">📄 {f.name} {formatSize(f.size)}</p>
           ))}
-          {sourceType !== 'file' && hasDbConfig && Object.entries(cv).filter(([k]) => k !== 'password').map(([k, v]) => (
+          {sourceType !== 'file' && hasDbConfig && Object.entries(cv).filter(([k]) => !['password', 'available_resources', 'selected_resources'].includes(k)).map(([k, v]) => (
             <p key={k} className="text-blue-500">{k}: {String(v).slice(0, 30)}</p>
           ))}
+          {selectedResources.length > 0 && (
+            <p className="text-blue-500">已选资源: {selectedResources.length} 个</p>
+          )}
           {!hasStoredFiles && !hasDbConfig && <p className="text-blue-400">暂无配置数据</p>}
         </div>
       </div>
@@ -76,7 +139,7 @@ export default function ConnectorInspector({ config, onChange, readOnly = false 
   return (
     <>
       <div><label className="text-xs text-gray-500 mb-1 block">数据源类型</label>
-        <select value={sourceType} onChange={e => { onChange('source_type', e.target.value); onChange('config_values', {}); onChange('files', []); setTestStatus('idle') }} className="w-full border rounded-lg px-3 py-1.5 text-sm"><option value="file">文件上传</option><option value="postgresql">PostgreSQL</option><option value="mysql">MySQL</option><option value="mongodb">MongoDB</option><option value="rest_api">REST API</option></select></div>
+        <select value={sourceType} onChange={e => { onChange('source_type', e.target.value); onChange('config_values', {}); onChange('files', []); setTestStatus('idle'); setResourceError('') }} className="w-full border rounded-lg px-3 py-1.5 text-sm"><option value="file">文件上传</option><option value="postgresql">PostgreSQL</option><option value="mysql">MySQL</option><option value="mongodb">MongoDB</option><option value="rest_api">REST API</option></select></div>
       {sourceType === 'file' && (
         <div>
           <label className="text-xs text-gray-500 mb-1 block">上传文件（支持多选）</label>
@@ -95,12 +158,62 @@ export default function ConnectorInspector({ config, onChange, readOnly = false 
           ))}</div>)}
         </div>
       )}
-      {sourceType !== 'file' && (<div className="space-y-3">{DB_CONFIG_FIELDS[sourceType]?.map(f => (<div key={f.key}><label className="text-xs text-gray-500 mb-1 block">{f.label}</label><input type={f.type || 'text'} value={String((config as any).config_values?.[f.key] || '')} onChange={e => { const cv2 = { ...((config as any).config_values || {}), [f.key]: e.target.value }; onChange('config_values', cv2); setTestStatus('idle') }} placeholder={f.placeholder} className="w-full border rounded-lg px-3 py-1.5 text-sm" /></div>))}</div>)}
+      {sourceType !== 'file' && (
+        <div className="space-y-3">
+          {DB_CONFIG_FIELDS[sourceType]?.map(f => (
+            <div key={f.key}>
+              <label className="text-xs text-gray-500 mb-1 block">{f.label}</label>
+              <input type={f.type || 'text'} value={String(cv?.[f.key] || '')} onChange={e => { updateConfigValues({ [f.key]: e.target.value }); setTestStatus('idle'); setResourceError('') }} placeholder={f.placeholder} className="w-full border rounded-lg px-3 py-1.5 text-sm" />
+            </div>
+          ))}
+        </div>
+      )}
       <div>
-        <button onClick={async () => { setTestStatus('testing'); try { if (sourceType === 'file') { setTestStatus(hasStoredFiles ? 'success' : 'failed'); setTestMessage(hasStoredFiles ? '就绪' : '请上传'); return } await apiClientV2.post('/connections/test-config', { type: sourceType, config: cv }); setTestStatus('success'); setTestMessage('连接成功') } catch (e: any) { setTestStatus('failed'); setTestMessage(e?.detail || '失败') } }} disabled={testStatus === 'testing' || uploading}
+        <button onClick={testConnection} disabled={testStatus === 'testing' || uploading || loadingResources}
           className={`w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border ${testStatus === 'success' ? 'bg-green-50 text-green-700 border-green-200' : testStatus === 'failed' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
           {testStatus === 'testing' && <Loader2 size={11} className="animate-spin" />}{testStatus === 'success' ? <CheckCircle size={11} /> : testStatus === 'failed' ? <XCircle size={11} /> : null}{testStatus === 'testing' ? '测试中...' : testStatus === 'success' ? '连接成功' : testStatus === 'failed' ? testMessage : '测试连接'}</button>
       </div>
+      {sourceType !== 'file' && supportsResourceSelection(sourceType) && (
+        <div className="space-y-2 border rounded-lg p-3 bg-gray-50">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-gray-700"><Database size={12} /> 选择表/资源</div>
+            <button type="button" onClick={loadResources} disabled={loadingResources || testStatus === 'testing'} className="text-xs px-2 py-1 border rounded-md bg-white hover:bg-gray-50 disabled:opacity-50 flex items-center gap-1">
+              {loadingResources ? <Loader2 size={11} className="animate-spin" /> : <RefreshCcw size={11} />}
+              刷新
+            </button>
+          </div>
+          {resourceError && <p className="text-xs text-red-500">{resourceError}</p>}
+          {cachedResources.length > 0 ? (
+            <>
+              <p className="text-[11px] text-gray-500">不选则默认全表运行；勾选后只运行选中的表/资源。</p>
+              <div className="max-h-44 overflow-y-auto space-y-1 bg-white border rounded-md p-2">
+                {cachedResources.map(resource => {
+                  const checked = selectedResources.includes(resource)
+                  return (
+                    <label key={resource} className="flex items-center gap-2 text-xs cursor-pointer">
+                      <input type="checkbox" checked={checked} onChange={e => toggleResource(resource, e.target.checked)} className="accent-black" />
+                      <span className="truncate">{resource}</span>
+                    </label>
+                  )
+                })}
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-gray-500">
+                <span>已选 {selectedResources.length} / {cachedResources.length}</span>
+                <div className="flex items-center gap-2">
+                  {selectedResources.length < cachedResources.length && (
+                    <button type="button" onClick={() => updateConfigValues({ selected_resources: [...cachedResources] })} className="underline hover:text-gray-700">全选</button>
+                  )}
+                  {selectedResources.length > 0 && (
+                    <button type="button" onClick={() => updateConfigValues({ selected_resources: [] })} className="underline hover:text-gray-700">清空选择</button>
+                  )}
+                </div>
+              </div>
+            </>
+          ) : (
+            <p className="text-[11px] text-gray-500">测试连接后可加载可选表/资源列表。</p>
+          )}
+        </div>
+      )}
       <div><label className="text-xs text-gray-500 mb-1 block">同步模式</label><select value={String(config.sync_mode || 'snapshot')} onChange={e => onChange('sync_mode', e.target.value)} className="w-full border rounded-lg px-3 py-1.5 text-sm"><option value="snapshot">SNAPSHOT</option><option value="append">APPEND</option></select></div>
     </>
   )
