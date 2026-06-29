@@ -1,4 +1,5 @@
 import axios, { type AxiosRequestConfig } from 'axios'
+import { useAuthStore } from '@/stores/authStore'
 
 type ApiClient = {
   get: <T = any>(url: string, config?: AxiosRequestConfig) => Promise<T>
@@ -12,7 +13,7 @@ let _redirectPending = false
 function handleAuthExpired() {
   if (_redirectPending) return
   _redirectPending = true
-  localStorage.removeItem('token')
+  useAuthStore.getState().logout()
   window.location.href = '/login'
 }
 

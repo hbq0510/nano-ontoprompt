@@ -166,7 +166,7 @@ FIRST_ADMIN_PASSWORD=changeme123
 # Optional services (graceful fallback when absent)
 REDIS_URL=redis://localhost:6379/0
 NEO4J_URI=bolt://localhost:7687
-MINIO_ENDPOINT=localhost:9000
+MINIO_ENDPOINT=minio:9000
 CHROMA_HOST=localhost
 
 # Upload limits
