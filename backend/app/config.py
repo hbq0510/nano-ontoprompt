@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     first_admin_password: str = "changeme123"
     uploads_dir: str = "./uploads"
     access_token_expire_minutes: int = 1440  # 24h
+    db_snapshot_dir: str = "./snapshots"
 
     # 上传限制
     max_upload_mb: int = 200

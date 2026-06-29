@@ -72,6 +72,10 @@ export const modelApi = {
 export const settingsApi = {
   getRules: () => apiClient.get<{ rule_key: string; rule_value: string; rule_label_cn: string; rule_label_en: string; editable: boolean }[]>('/settings/rules'),
   updateRules: (rules: { rule_key: string; rule_value: string }[]) => apiClient.put('/settings/rules', rules),
+  listSnapshots: () => apiClient.get<{ name: string; size: number; created_at: string; engine: string }[]>('/settings/snapshots'),
+  createSnapshot: (label?: string) => apiClient.post<{ name: string; size: number; created_at: string; engine: string }>('/settings/snapshots', { label: label || null }),
+  restoreSnapshot: (name: string) => apiClient.post<{ name: string; size: number; created_at: string; engine: string }>('/settings/snapshots/restore', { name }),
+  deleteSnapshot: (name: string) => apiClient.delete('/settings/snapshots', { data: { name } }),
 }
 
 export const usersApi = {

@@ -14,7 +14,7 @@ import {
   type ExtractionRuleState,
 } from '@/utils/extractionRules'
 
-type ActiveTab = 'rules' | 'extraction_rules' | 'users' | 'prompts'
+type ActiveTab = 'rules' | 'snapshots' | 'extraction_rules' | 'users' | 'prompts'
 
 export default function SettingsPage() {
   const { t, i18n } = useTranslation()
@@ -30,6 +30,8 @@ export default function SettingsPage() {
   // Prompts tab state
   const [showCreatePrompt, setShowCreatePrompt] = useState(false)
   const [promptMsg, setPromptMsg] = useState('')
+  const [snapshotLabel, setSnapshotLabel] = useState('')
+  const [snapshotMsg, setSnapshotMsg] = useState('')
   const [expandedPromptId, setExpandedPromptId] = useState<string | null>(null)
   const [promptName, setPromptName] = useState('')
   const [promptDomain, setPromptDomain] = useState('通用')
@@ -52,10 +54,44 @@ export default function SettingsPage() {
     },
   })
 
+  const { data: snapshots = [], isLoading: snapshotsLoading } = useQuery({
+    queryKey: ['settings-snapshots'],
+    queryFn: () => settingsApi.listSnapshots() as any,
+    enabled: activeTab === 'snapshots',
+  })
+
   const { data: users = [], isLoading: usersLoading } = useQuery({
     queryKey: ['users'],
     queryFn: () => usersApi.list() as any,
     enabled: activeTab === 'users',
+  })
+
+  const createSnapshotMut = useMutation({
+    mutationFn: () => settingsApi.createSnapshot(snapshotLabel.trim() || undefined),
+    onSuccess: (data: any) => {
+      setSnapshotMsg(`快照已创建: ${data.name}`)
+      setSnapshotLabel('')
+      qc.invalidateQueries({ queryKey: ['settings-snapshots'] })
+    },
+    onError: (e: any) => setSnapshotMsg(`创建失败: ${e?.detail || ''}`),
+  })
+
+  const restoreSnapshotMut = useMutation({
+    mutationFn: (name: string) => settingsApi.restoreSnapshot(name),
+    onSuccess: (data: any) => {
+      setSnapshotMsg(`快照已恢复: ${data.name}`)
+      qc.invalidateQueries({ queryKey: ['settings-snapshots'] })
+    },
+    onError: (e: any) => setSnapshotMsg(`恢复失败: ${e?.detail || ''}`),
+  })
+
+  const deleteSnapshotMut = useMutation({
+    mutationFn: (name: string) => settingsApi.deleteSnapshot(name),
+    onSuccess: () => {
+      setSnapshotMsg('快照已删除')
+      qc.invalidateQueries({ queryKey: ['settings-snapshots'] })
+    },
+    onError: (e: any) => setSnapshotMsg(`删除失败: ${e?.detail || ''}`),
   })
 
   const updateMut = useMutation({
@@ -152,6 +188,7 @@ export default function SettingsPage() {
 
   const tabs: { key: ActiveTab; label: string }[] = [
     { key: 'rules', label: t('settings.rules') },
+    { key: 'snapshots', label: '数据库快照' },
     { key: 'extraction_rules', label: t('settings.tab_extraction') },
     { key: 'users', label: t('settings.tab_users') },
     { key: 'prompts', label: '提示词模版' },
@@ -199,6 +236,70 @@ export default function SettingsPage() {
                 {t('settings.save')}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'snapshots' && (
+        <div className="max-w-3xl space-y-4">
+          <div className="bg-white border rounded-lg p-6">
+            <h3 className="text-sm font-semibold mb-1">数据库快照</h3>
+            <p className="text-xs text-gray-500 mb-4">创建当前数据库快照，并在测试后快速恢复数据状态。</p>
+            <div className="flex flex-wrap gap-3 items-center">
+              <input
+                value={snapshotLabel}
+                onChange={e => setSnapshotLabel(e.target.value)}
+                placeholder="可选标签，例如 before-demo"
+                className="border rounded-lg px-3 py-2 text-sm w-64"
+              />
+              <button
+                onClick={() => createSnapshotMut.mutate()}
+                disabled={createSnapshotMut.isPending}
+                className="px-4 py-2 bg-black text-white rounded-lg text-sm disabled:opacity-50">
+                {createSnapshotMut.isPending ? '创建中...' : '创建快照'}
+              </button>
+            </div>
+            {snapshotMsg && (
+              <p className={`text-xs mt-3 ${snapshotMsg.includes('失败') ? 'text-red-500' : 'text-green-600'}`}>{snapshotMsg}</p>
+            )}
+          </div>
+
+          <div className="bg-white border rounded-lg overflow-hidden">
+            <div className="px-6 py-4 border-b">
+              <h3 className="text-sm font-semibold">已有快照</h3>
+            </div>
+            {snapshotsLoading ? (
+              <p className="px-6 py-8 text-sm text-gray-400">{t('common.loading')}</p>
+            ) : (snapshots as any[]).length === 0 ? (
+              <p className="px-6 py-8 text-sm text-gray-400">暂无快照</p>
+            ) : (
+              <div className="divide-y">
+                {(snapshots as any[]).map((snapshot: any) => (
+                  <div key={snapshot.name} className="px-6 py-4 flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium break-all">{snapshot.name}</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {snapshot.engine} · {new Date(snapshot.created_at).toLocaleString(i18n.language === 'zh' ? 'zh-CN' : 'en-US')} · {(snapshot.size / 1024).toFixed(1)} KB
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => restoreSnapshotMut.mutate(snapshot.name)}
+                        disabled={restoreSnapshotMut.isPending || deleteSnapshotMut.isPending}
+                        className="px-3 py-1.5 border rounded-lg text-sm hover:bg-gray-50 disabled:opacity-50">
+                        {restoreSnapshotMut.isPending ? '恢复中...' : '恢复'}
+                      </button>
+                      <button
+                        onClick={() => deleteSnapshotMut.mutate(snapshot.name)}
+                        disabled={restoreSnapshotMut.isPending || deleteSnapshotMut.isPending}
+                        className="px-3 py-1.5 border border-red-200 text-red-600 rounded-lg text-sm hover:bg-red-50 disabled:opacity-50">
+                        {deleteSnapshotMut.isPending ? '删除中...' : '删除'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
