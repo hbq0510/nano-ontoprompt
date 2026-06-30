@@ -3,7 +3,8 @@ import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useTranslation } from 'react-i18next'
-import { LayoutDashboard, Network, Cpu, Settings, LogOut, Database, ChevronLeft, ChevronRight } from 'lucide-react'
+import { LayoutDashboard, Network, Cpu, Settings, LogOut, Database, ChevronLeft, ChevronRight, Zap, Crosshair } from 'lucide-react'
+import TriggerNotification from '@/components/TriggerNotification'
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const logout = useAuthStore(s => s.logout)
@@ -17,6 +18,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { to: '/overview', icon: LayoutDashboard, label: t('nav.overview') },
     { to: '/pipelines', icon: Database, label: t('nav.pipelines') },
     { to: '/ontologies', icon: Network, label: t('nav.ontologies') },
+    { to: '/intelligence', icon: Crosshair, label: '情报分析' },
+    { to: '/skills', icon: Zap, label: '技能' },
     { to: '/models', icon: Cpu, label: t('nav.models') },
     { to: '/settings', icon: Settings, label: t('nav.settings') },
   ]
@@ -48,6 +51,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </button>
       </aside>
       <main className="flex-1 overflow-auto p-6">{children}</main>
+      <TriggerNotification />
     </div>
   )
 }

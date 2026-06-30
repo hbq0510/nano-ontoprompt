@@ -1,6 +1,33 @@
 import json
 import re
+import base64
+import os
 from typing import Any
+
+# Image mime types that can be passed to vision LLMs
+IMAGE_MIME_TYPES = {
+    "image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp",
+    "image/tiff", "image/tif",
+}
+
+def _is_image_file(file_path: str) -> bool:
+    ext = os.path.splitext(file_path)[1].lower()
+    return ext in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".tiff", ".tif", ".bmp"}
+
+def _encode_image(file_path: str) -> str:
+    """Read image file and return base64 data-URL string."""
+    mime_map = {
+        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".gif": "image/gif", ".webp": "image/webp",
+        ".tiff": "image/tiff", ".tif": "image/tiff",
+        ".bmp": "image/bmp",
+    }
+    ext = os.path.splitext(file_path)[1].lower()
+    mime = mime_map.get(ext, "image/png")
+    with open(file_path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode("ascii")
+    return f"data:{mime};base64,{b64}"
+
 
 def extract_ontology(text: str, prompt_content: str, model_config: dict, model_name: str, retry_count: int = 3) -> dict:
     provider = model_config.get("provider", "openai")
@@ -15,6 +42,48 @@ def extract_ontology(text: str, prompt_content: str, model_config: dict, model_n
     for attempt in range(retry_count):
         try:
             raw = _call_llm(provider, api_key, api_base, model_name, messages)
+            return _parse_response(raw)
+        except Exception as e:
+            if attempt == retry_count - 1:
+                raise
+    return {}
+
+
+def extract_ontology_multimodal(
+    text: str,
+    image_paths: list[str],
+    prompt_content: str,
+    model_config: dict,
+    model_name: str,
+    retry_count: int = 3,
+) -> dict:
+    """Extract ontology from text + images using a vision-capable LLM."""
+    provider = model_config.get("provider", "openai")
+    api_key = model_config.get("api_key", "")
+    api_base = model_config.get("api_base")
+
+    # Build multimodal user content
+    user_content: list[dict] = []
+    if text.strip():
+        user_content.append({"type": "text", "text": f"请从以下情报中提取本体信息，以JSON格式返回：\n\n{text}"})
+    else:
+        user_content.append({"type": "text", "text": "请从以下图像中提取本体信息，以JSON格式返回："})
+
+    for img_path in image_paths:
+        try:
+            data_url = _encode_image(img_path)
+            user_content.append({"type": "image_url", "image_url": {"url": data_url}})
+        except Exception:
+            pass  # skip unreadable images
+
+    messages = [
+        {"role": "system", "content": prompt_content},
+        {"role": "user", "content": user_content},
+    ]
+
+    for attempt in range(retry_count):
+        try:
+            raw = _call_llm(provider, api_key, api_base, model_name, messages, json_mode=True)
             return _parse_response(raw)
         except Exception as e:
             if attempt == retry_count - 1:

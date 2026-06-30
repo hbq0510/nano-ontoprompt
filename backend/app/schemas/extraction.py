@@ -23,5 +23,6 @@ class ExtractionTaskOut(BaseModel):
     progress: Dict[str, Any]
     error: Optional[str]
     validation_report: Optional[Dict[str, Any]]
+    raw_output: Optional[Dict[str, Any]]
     created_at: datetime
     updated_at: datetime

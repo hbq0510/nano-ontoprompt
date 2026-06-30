@@ -12,6 +12,8 @@ import EntityDetailPage from '@/pages/ontologies/detail/entity/EntityDetailPage'
 import LogicDetailPage from '@/pages/ontologies/detail/logic/LogicDetailPage'
 import ActionDetailPage from '@/pages/ontologies/detail/action/ActionDetailPage'
 import ModelsPage from '@/pages/models/ModelsPage'
+import SkillsPage from '@/pages/skills/SkillsPage'
+import IntelDashboardPage from '@/pages/intelligence/IntelDashboardPage'
 import SettingsPage from '@/pages/settings/SettingsPage'
 import PipelinesLayout from '@/pages/pipelines/PipelinesLayout'
 import PipelineListPage from '@/pages/pipelines/PipelineListPage'
@@ -53,6 +55,9 @@ export default function App() {
           <Route path="/ontologies/:id/entities/:eid" element={<ProtectedRoute><EntityDetailPage /></ProtectedRoute>} />
           <Route path="/ontologies/:id/logic/:lid" element={<ProtectedRoute><LogicDetailPage /></ProtectedRoute>} />
           <Route path="/ontologies/:id/actions/:aid" element={<ProtectedRoute><ActionDetailPage /></ProtectedRoute>} />
+          <Route path="/intelligence" element={<ProtectedRoute><IntelDashboardPage /></ProtectedRoute>} />
+          <Route path="/intelligence/:ontologyId" element={<ProtectedRoute><IntelDashboardPage /></ProtectedRoute>} />
+          <Route path="/skills" element={<ProtectedRoute><SkillsPage /></ProtectedRoute>} />
           <Route path="/models" element={<ProtectedRoute><ModelsPage /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
         </Routes>

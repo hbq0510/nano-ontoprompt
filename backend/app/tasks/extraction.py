@@ -1,3 +1,4 @@
+import os
 from celery import Celery
 from app.config import settings
 
@@ -149,24 +150,80 @@ def run_extraction(self, task_id: str):
         if not files:
             task.status = "failed"; task.error = "No files uploaded"; db.commit(); return
 
-        combined_text = "\n\n---\n\n".join(f.converted_md or "" for f in files if f.converted_md)
-        if not combined_text.strip():
-            task.status = "failed"; task.error = "No text content found in files"; db.commit(); return
-
-        # Strip control characters and normalise whitespace so the LLM doesn't
-        # embed raw bytes that would later break its own JSON output.
         import re as _re
+        from app.services.llm_service import _is_image_file
+
+        combined_text = "\n\n---\n\n".join(f.converted_md or "" for f in files if f.converted_md)
+        # Strip control characters
         combined_text = _re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', combined_text)
 
-        model_cfg = db.query(ModelConfig).filter(ModelConfig.id == task.model_id).first()
-        prompt    = db.query(Prompt).filter(Prompt.id == task.prompt_id).first()
-        if not model_cfg or not prompt:
-            task.status = "failed"; task.error = "Model or prompt not found"; db.commit(); return
+        # Detect image files & resolve them to local temp paths
+        image_paths: list[str] = []
+        import tempfile as _tempfile
+        _temp_images_to_clean: list[str] = []  # track temp files for cleanup
+
+        for f in files:
+            path = (f.file_path or "").strip()
+            if not path:
+                continue
+            # Download from MinIO if needed
+            if path.startswith("minio://"):
+                try:
+                    from minio import Minio
+                    bucket, obj = path[8:].split("/", 1)
+                    client = Minio(
+                        settings.minio_endpoint,
+                        access_key=settings.minio_access_key,
+                        secret_key=settings.minio_secret_key,
+                        secure=settings.minio_use_ssl,
+                    )
+                    tmp = _tempfile.NamedTemporaryFile(suffix=os.path.splitext(obj)[1], delete=False)
+                    client.fget_object(bucket, obj, tmp.name)
+                    tmp.close()
+                    path = tmp.name
+                    _temp_images_to_clean.append(path)
+                except Exception:
+                    path = ""
+            # Fallback to local uploads dir
+            if (not path or not os.path.exists(path)) and f.filename:
+                path = os.path.join(settings.uploads_dir, f.filename)
+            if path and os.path.exists(path) and _is_image_file(path):
+                image_paths.append(path)
+            # Read raw text files that don't have converted_md yet (e.g. from skill triggers)
+            elif path and os.path.exists(path) and not f.converted_md:
+                try:
+                    with open(path, "r", encoding="utf-8", errors="replace") as rf:
+                        raw_text = rf.read()
+                    combined_text += "\n\n---\n\n" + _re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', raw_text)
+                except Exception:
+                    pass
+
+        has_images = len(image_paths) > 0
+        has_text = bool(combined_text.strip())
+
+        if not has_text and not has_images:
+            task.status = "failed"; task.error = "No text or image content found in files"; db.commit(); return
+
+        # Resolve model config — fallback to first available
+        model_cfg = db.query(ModelConfig).filter(ModelConfig.id == task.model_id).first() if task.model_id else None
+        if not model_cfg:
+            model_cfg = db.query(ModelConfig).order_by(ModelConfig.created_at.asc()).first()
+        if not model_cfg:
+            task.status = "failed"; task.error = "No model configured"; db.commit(); return
+
+        # Resolve prompt — fallback to first available
+        prompt = db.query(Prompt).filter(Prompt.id == task.prompt_id).first() if task.prompt_id else None
+        if not prompt:
+            prompt = db.query(Prompt).order_by(Prompt.created_at.asc()).first()
+        if not prompt:
+            task.status = "failed"; task.error = "No prompt configured"; db.commit(); return
 
         task.progress = {"stage": "calling LLM", "pct": 40}
         db.commit()
 
         model_name = task.parameters.get("model_name", "")
+        if not model_name and model_cfg.models:
+            model_name = model_cfg.models[0] if isinstance(model_cfg.models, list) else ""
         config_dict = {
             "provider": model_cfg.provider,
             "api_key":  decrypt(model_cfg.api_key_encrypted or ""),
@@ -174,15 +231,28 @@ def run_extraction(self, task_id: str):
         }
 
         prompt_content = prompt.content
+        # Inject prebuilt entities as constraints if provided by skill
+        prebuilt = task.parameters.get("prebuilt_entities", [])
+        if prebuilt:
+            prebuilt_hint = "\n\n# 预定义实体（务必包含）\n请确保提取结果中包含以下实体类型：\n" + "\n".join(f"- {e}" for e in prebuilt)
+            prompt_content += prebuilt_hint
         constraints = task.parameters.get("constraints", [])
         if constraints:
             prompt_content += "\n\n" + "\n".join(constraints)
 
         # ── Pass 1: main extraction ──────────────────────────────────────────
-        result = extract_ontology(combined_text, prompt_content, config_dict, model_name)
+        if has_images:
+            from app.services.llm_service import extract_ontology_multimodal
+            result = extract_ontology_multimodal(combined_text, image_paths, prompt_content, config_dict, model_name)
+        else:
+            result = extract_ontology(combined_text, prompt_content, config_dict, model_name)
 
         # ── Fix 5: calibrate confidence before validation ────────────────────
         result = _calibrate_confidence(result)
+
+        # Save raw LLM output for debugging
+        task.raw_output = result
+        db.commit()
 
         # ── P0 validation ────────────────────────────────────────────────────
         task.progress = {"stage": "validating output", "pct": 65}

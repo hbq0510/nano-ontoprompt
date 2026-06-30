@@ -24,6 +24,8 @@ from app.routers.v2 import curated as curated_v2
 from app.routers.v2 import mappings as mappings_v2
 from app.routers.v2 import incremental as incremental_v2
 from app.routers.v2 import logic_actions as logic_actions_v2
+from app.routers import skills
+from app.routers import intel_demo
 
 def _seed_db():
     from app.services.auth_service import seed_admin
@@ -37,6 +39,8 @@ def _seed_db():
         from app.models.v2 import dataset as v2_dataset, pipeline as v2_pipeline, connection as v2_connection  # noqa: F401
         from app.models.v2.logic import OntologyLogicRule, OntologyStateMachine  # noqa: F401
         from app.models.v2.action import OntologyActionType, OntologyActionRun  # noqa: F401
+        from app.models.skill import Skill, SkillTrigger  # noqa: F401
+        from app.models.intel_snapshot import IntelSnapshot  # noqa: F401
         Base.metadata.create_all(bind=engine)
 
         # SQLite column migrations — create_all skips existing tables
@@ -55,6 +59,16 @@ def _seed_db():
                 "ALTER TABLE logic_rules ADD COLUMN status VARCHAR(20) DEFAULT 'draft'",
                 "ALTER TABLE actions ADD COLUMN enabled BOOLEAN DEFAULT 1",
                 "ALTER TABLE actions ADD COLUMN status VARCHAR(20) DEFAULT 'draft'",
+                "ALTER TABLE extraction_tasks ADD COLUMN raw_output JSON",
+                "CREATE TABLE IF NOT EXISTS intel_snapshots ("
+                "id VARCHAR PRIMARY KEY, ontology_id VARCHAR NOT NULL REFERENCES ontology_projects(id) ON DELETE CASCADE,"
+                "label VARCHAR(50) NOT NULL, intel_text TEXT NOT NULL,"
+                "extraction_task_id VARCHAR REFERENCES extraction_tasks(id) ON DELETE SET NULL,"
+                "danger_score FLOAT DEFAULT 0.0, danger_level VARCHAR(20) DEFAULT 'low',"
+                "recommendations JSON DEFAULT '[]', entity_count INTEGER DEFAULT 0, relation_count INTEGER DEFAULT 0,"
+                "status VARCHAR(20) DEFAULT 'extracting',"
+                "created_at TIMESTAMP DEFAULT NOW()"
+                ")",
             ]:
                 try:
                     conn.execute(text(stmt))
@@ -132,6 +146,8 @@ app.include_router(extraction.router, prefix="/api/v1/ontologies/{ontology_id}/e
 app.include_router(graph.router, prefix="/api/v1/ontologies/{ontology_id}/graph", tags=["graph"])
 app.include_router(export.router, prefix="/api/v1/ontologies/{ontology_id}/export", tags=["export"])
 app.include_router(prompts.router, prefix="/api/v1/prompts", tags=["prompts"])
+app.include_router(skills.router, prefix="/api/v2/skills", tags=["v2-skills"])
+app.include_router(intel_demo.router, prefix="/api/v2/intel-demo", tags=["v2-intel-demo"])
 app.include_router(models.router, prefix="/api/v1/models", tags=["models"])
 app.include_router(settings_router.router, prefix="/api/v1/settings", tags=["settings"])
 app.include_router(connections_v2.router, prefix="/api/v2/connections", tags=["v2-connections"])
