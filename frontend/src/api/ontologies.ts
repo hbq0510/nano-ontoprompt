@@ -9,6 +9,7 @@ export const ontologyApi = {
   get: (id: string) => apiClient.get<OntologyDetail>(`/ontologies/${id}`),
   update: (id: string, body: Partial<OntologyDetail>) => apiClient.put<OntologyDetail>(`/ontologies/${id}`, body),
   delete: (id: string) => apiClient.delete(`/ontologies/${id}`),
+  batchDelete: (ids: string[]) => apiClient.delete('/ontologies/batch', { data: { ids } }),
 
   // Files
   listFiles: (oid: string) => apiClient.get<UploadedFile[]>(`/ontologies/${oid}/files`),

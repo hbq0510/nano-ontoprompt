@@ -6,7 +6,7 @@ import { ontologyApi } from '@/api/ontologies'
 import StatusBadge from '@/components/StatusBadge'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import type { OntologyListItem } from '@/types/ontology'
-import { X, Plus } from 'lucide-react'
+import { X, Plus, Trash2 } from 'lucide-react'
 
 export default function OntologyListPage() {
   const [idFilter, setIdFilter] = useState('')
@@ -14,6 +14,7 @@ export default function OntologyListPage() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
   const qc = useQueryClient()
   const navigate = useNavigate()
   const { t, i18n } = useTranslation()
@@ -31,6 +32,32 @@ export default function OntologyListPage() {
       setDeleteTarget(null)
     },
   })
+
+  const batchDeleteMut = useMutation({
+    mutationFn: (ids: string[]) => ontologyApi.batchDelete(ids) as any,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ontologies'] })
+      qc.invalidateQueries({ queryKey: ['stats'] })
+      setSelected(new Set())
+    },
+  })
+
+  const toggleSelect = (id: string) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    const ids = filteredItems.map(o => o.id)
+    if (ids.every(id => selected.has(id))) {
+      setSelected(new Set())
+    } else {
+      setSelected(new Set(ids))
+    }
+  }
 
   const allItems: OntologyListItem[] = data?.items ?? []
 
@@ -53,10 +80,22 @@ export default function OntologyListPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-semibold">{t('ontology.title')}</h2>
-        <button onClick={() => navigate('/ontologies/new')}
-          className="flex items-center gap-2 bg-black text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-800">
-          <Plus size={14} /> {t('ontology.create')}
-        </button>
+        <div className="flex items-center gap-3">
+          {selected.size > 0 && (
+            <button
+              onClick={() => batchDeleteMut.mutate([...selected])}
+              disabled={batchDeleteMut.isPending}
+              className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+            >
+              <Trash2 size={14} />
+              删除选中 ({selected.size})
+            </button>
+          )}
+          <button onClick={() => navigate('/ontologies/new')}
+            className="flex items-center gap-2 bg-black text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-800">
+            <Plus size={14} /> {t('ontology.create')}
+          </button>
+        </div>
       </div>
 
       {/* Filter bar */}
@@ -100,6 +139,12 @@ export default function OntologyListPage() {
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b">
             <tr>
+              <th className="px-4 py-3 w-10">
+                <input type="checkbox"
+                  checked={filteredItems.length > 0 && filteredItems.every(o => selected.has(o.id))}
+                  onChange={toggleSelectAll}
+                  className="rounded" />
+              </th>
               {['ID', t('ontology.name'), t('ontology.domain'), '构建方式', '实体', '关系', t('ontology.status'), t('ontology.created_at'), t('ontology.actions')].map(h => (
                 <th key={h} className="px-4 py-3 text-left text-gray-500 font-medium text-xs">{h}</th>
               ))}
@@ -107,9 +152,15 @@ export default function OntologyListPage() {
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan={8} className="text-center py-8 text-gray-400">{t('common.loading')}</td></tr>
+              <tr><td colSpan={10} className="text-center py-8 text-gray-400">{t('common.loading')}</td></tr>
             ) : filteredItems.map((o) => (
               <tr key={o.id} className="border-b hover:bg-gray-50">
+                <td className="px-4 py-3">
+                  <input type="checkbox"
+                    checked={selected.has(o.id)}
+                    onChange={() => toggleSelect(o.id)}
+                    className="rounded" />
+                </td>
                 <td className="px-4 py-3 font-mono text-xs text-gray-400" title={o.id}>{o.id.slice(0, 8)}</td>
                 <td className="px-4 py-3 font-medium">{o.name}</td>
                 <td className="px-4 py-3 text-gray-500">{o.domain}</td>

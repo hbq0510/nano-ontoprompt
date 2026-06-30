@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import Optional
+from pydantic import BaseModel
 from app.deps import get_db, get_current_user
 from app.models.ontology import OntologyProject
 from app.models.entity import Entity
@@ -9,6 +10,10 @@ from app.models.relation import Relation
 from app.models.user import User
 from app.schemas.ontology import OntologyCreate, OntologyOut, OntologyListItem, OntologyUpdate
 import uuid
+
+
+class BatchDeleteRequest(BaseModel):
+    ids: list[str]
 
 router = APIRouter()
 
@@ -65,3 +70,20 @@ def delete_ontology(ontology_id: str, db: Session = Depends(get_db), _=Depends(g
     if not p:
         raise HTTPException(404, "Not found")
     db.delete(p); db.commit()
+
+
+@router.delete("/batch", status_code=200)
+def batch_delete_ontologies(
+    body: BatchDeleteRequest,
+    db: Session = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """批量删除 Ontology"""
+    deleted = 0
+    for oid in body.ids:
+        p = db.query(OntologyProject).filter(OntologyProject.id == oid).first()
+        if p:
+            db.delete(p)
+            deleted += 1
+    db.commit()
+    return {"data": {"deleted": deleted}}
