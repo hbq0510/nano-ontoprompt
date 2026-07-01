@@ -64,14 +64,6 @@ def update_ontology(ontology_id: str, body: OntologyUpdate, db: Session = Depend
     db.commit(); db.refresh(p)
     return {"data": OntologyOut.model_validate(p).model_dump()}
 
-@router.delete("/{ontology_id}", status_code=204)
-def delete_ontology(ontology_id: str, db: Session = Depends(get_db), _=Depends(get_current_user)):
-    p = db.query(OntologyProject).filter(OntologyProject.id == ontology_id).first()
-    if not p:
-        raise HTTPException(404, "Not found")
-    db.delete(p); db.commit()
-
-
 @router.delete("/batch", status_code=200)
 def batch_delete_ontologies(
     body: BatchDeleteRequest,
@@ -87,3 +79,11 @@ def batch_delete_ontologies(
             deleted += 1
     db.commit()
     return {"data": {"deleted": deleted}}
+
+
+@router.delete("/{ontology_id}", status_code=204)
+def delete_ontology(ontology_id: str, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    p = db.query(OntologyProject).filter(OntologyProject.id == ontology_id).first()
+    if not p:
+        raise HTTPException(404, "Not found")
+    db.delete(p); db.commit()

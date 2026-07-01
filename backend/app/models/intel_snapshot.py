@@ -35,8 +35,12 @@ class IntelSnapshot(Base):
     entity_count: Mapped[int] = mapped_column(Integer, default=0)
     relation_count: Mapped[int] = mapped_column(Integer, default=0)
 
+    # 本次抽取创建的实体/关系 ID（用于撤回）
+    created_entity_ids: Mapped[list] = mapped_column(JSON, default=list)
+    created_relation_ids: Mapped[list] = mapped_column(JSON, default=list)
+
     # 状态
-    status: Mapped[str] = mapped_column(String(20), default="extracting")  # extracting/completed/failed
+    status: Mapped[str] = mapped_column(String(20), default="extracting")  # extracting/completed/failed/reverted
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc)

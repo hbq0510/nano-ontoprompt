@@ -24,4 +24,15 @@ export const intelApi = {
 
   getGraph: (ontologyId: string) =>
     apiClientV2.get<GraphData>(`/intel-demo/${ontologyId}/graph`),
+
+  assessQuick: (ontologyId: string, intelText: string) =>
+    apiClientV2.post<IntelAssessData & {
+      matched_entities: Array<{ id: string; name_cn: string; type: string; match_keyword: string }>
+      triggered_rules: Array<{ id: string; name_cn: string; formula: string; linked_entities: string[] }>
+      triggered_actions: Array<{ id: string; name_cn: string; execution_rule: string; function_code: string }>
+      mode: string
+    }>(`/intel-demo/${ontologyId}/assess-quick`, { intel_text: intelText }),
+
+  undoLast: (ontologyId: string) =>
+    apiClientV2.post<{ reverted: boolean; message: string; snapshot_label?: string; reverted_entities?: number }>(`/intel-demo/${ontologyId}/undo-last`),
 }

@@ -14,6 +14,7 @@ export default function OntologyListPage() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
+  const [batchDeleteTarget, setBatchDeleteTarget] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const qc = useQueryClient()
   const navigate = useNavigate()
@@ -83,7 +84,7 @@ export default function OntologyListPage() {
         <div className="flex items-center gap-3">
           {selected.size > 0 && (
             <button
-              onClick={() => batchDeleteMut.mutate([...selected])}
+              onClick={() => setBatchDeleteTarget(true)}
               disabled={batchDeleteMut.isPending}
               className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50"
             >
@@ -197,6 +198,14 @@ export default function OntologyListPage() {
         message={t('ontology.confirm_delete_msg', { name: deleteTarget?.name })}
         onConfirm={() => deleteTarget && deleteMut.mutate(deleteTarget.id)}
         onCancel={() => setDeleteTarget(null)}
+      />
+
+      <ConfirmDialog
+        open={batchDeleteTarget}
+        title="批量删除"
+        message={`确定要删除选中的 ${selected.size} 个本体项目吗？此操作不可撤销。`}
+        onConfirm={() => { batchDeleteMut.mutate([...selected]); setBatchDeleteTarget(false) }}
+        onCancel={() => setBatchDeleteTarget(false)}
       />
     </div>
   )

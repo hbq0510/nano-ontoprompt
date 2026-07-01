@@ -60,6 +60,8 @@ def _seed_db():
                 "ALTER TABLE actions ADD COLUMN enabled BOOLEAN DEFAULT 1",
                 "ALTER TABLE actions ADD COLUMN status VARCHAR(20) DEFAULT 'draft'",
                 "ALTER TABLE extraction_tasks ADD COLUMN raw_output JSON",
+                "ALTER TABLE intel_snapshots ADD COLUMN IF NOT EXISTS created_entity_ids JSON DEFAULT '[]'",
+                "ALTER TABLE intel_snapshots ADD COLUMN IF NOT EXISTS created_relation_ids JSON DEFAULT '[]'",
                 "CREATE TABLE IF NOT EXISTS intel_snapshots ("
                 "id VARCHAR PRIMARY KEY, ontology_id VARCHAR NOT NULL REFERENCES ontology_projects(id) ON DELETE CASCADE,"
                 "label VARCHAR(50) NOT NULL, intel_text TEXT NOT NULL,"
