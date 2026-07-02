@@ -1,5 +1,5 @@
 import { apiClient } from './client'
-import type { OntologyListItem, OntologyDetail, Entity, LogicRule, Action, UploadedFile, Prompt, ModelConfig } from '@/types/ontology'
+import type { OntologyListItem, OntologyDetail, Entity, LogicRule, Action, UploadedFile, Prompt, ModelConfig, EntityTemplate } from '@/types/ontology'
 
 export const ontologyApi = {
   list: (params?: { name?: string; page?: number; page_size?: number }) =>
@@ -45,6 +45,12 @@ export const ontologyApi = {
     apiClient.post<{ task_id: string }>(`/ontologies/${oid}/execute`, body),
   getExtractionStatus: (oid: string, task_id: string) =>
     apiClient.get(`/ontologies/${oid}/execute/status?task_id=${task_id}`),
+
+  // Templates
+  listTemplates: (oid: string) => apiClient.get<EntityTemplate[]>(`/ontologies/${oid}/templates`),
+  createTemplate: (oid: string, body: Partial<EntityTemplate>) => apiClient.post<EntityTemplate>(`/ontologies/${oid}/templates`, body),
+  updateTemplate: (oid: string, tid: string, body: Partial<EntityTemplate>) => apiClient.put<EntityTemplate>(`/ontologies/${oid}/templates/${tid}`, body),
+  deleteTemplate: (oid: string, tid: string) => apiClient.delete(`/ontologies/${oid}/templates/${tid}`),
 
   // Export
   exportUrl: (oid: string, format: string) => `/api/v1/ontologies/${oid}/export?format=${format}`,

@@ -26,6 +26,7 @@ from app.routers.v2 import incremental as incremental_v2
 from app.routers.v2 import logic_actions as logic_actions_v2
 from app.routers import skills
 from app.routers import intel_demo
+from app.routers import templates
 
 def _seed_db():
     from app.services.auth_service import seed_admin
@@ -35,7 +36,7 @@ def _seed_db():
     db = SessionLocal()
     try:
         # Import all models to ensure tables are created
-        from app.models import user, ontology, file, prompt, model_config, entity, logic as logic_model, action, relation, extraction_task, rules_config
+        from app.models import user, ontology, file, prompt, model_config, entity, logic as logic_model, action, relation, extraction_task, rules_config, entity_template  # noqa: F401
         from app.models.v2 import dataset as v2_dataset, pipeline as v2_pipeline, connection as v2_connection  # noqa: F401
         from app.models.v2.logic import OntologyLogicRule, OntologyStateMachine  # noqa: F401
         from app.models.v2.action import OntologyActionType, OntologyActionRun  # noqa: F401
@@ -142,6 +143,7 @@ app.include_router(overview.router, prefix="/api/v1/overview", tags=["overview"]
 app.include_router(ontologies.router, prefix="/api/v1/ontologies", tags=["ontologies"])
 app.include_router(files.router, prefix="/api/v1/ontologies/{ontology_id}/files", tags=["files"])
 app.include_router(entities.router, prefix="/api/v1/ontologies/{ontology_id}/entities", tags=["entities"])
+app.include_router(templates.router, prefix="/api/v1/ontologies/{ontology_id}/templates", tags=["templates"])
 app.include_router(logic.router, prefix="/api/v1/ontologies/{ontology_id}/logic", tags=["logic"])
 app.include_router(actions.router, prefix="/api/v1/ontologies/{ontology_id}/actions", tags=["actions"])
 app.include_router(extraction.router, prefix="/api/v1/ontologies/{ontology_id}/execute", tags=["extraction"])

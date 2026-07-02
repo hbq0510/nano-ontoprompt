@@ -100,3 +100,23 @@ export interface ModelConfig {
 }
 
 export const DOMAINS = ['供应链','采购','财务','医疗','金融','法律','教育','科技','制造','能源','其他']
+
+// ── Entity Template ─────────────────────────────────────────────────
+export interface FieldDef {
+  name: string
+  type: 'string' | 'number' | 'select' | 'boolean' | 'text'
+  required: boolean
+  options: string[]
+  unit: string
+}
+
+export interface EntityTemplate {
+  id: string
+  ontology_id: string
+  type_name: string
+  type_name_en?: string
+  description?: string
+  fields: FieldDef[]
+  created_at: string
+  updated_at: string
+}
