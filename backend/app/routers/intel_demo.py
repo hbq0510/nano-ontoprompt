@@ -307,6 +307,152 @@ def forward_intel(
 
 # ── 多地址解析辅助函数 ─────────────────────────────────────────────
 
+# ══════════════════════════════════════════════════════════════════════
+# 公共函数：轻量实体匹配计数（供 auto-match 使用）
+# ══════════════════════════════════════════════════════════════════════
+
+def _quick_match_count(ontology_id: str, text: str, db) -> int:
+    """快速统计某个本体中能匹配情报文本的实体数量（不做危险评估）。"""
+    entities = db.query(Entity).filter(Entity.ontology_id == ontology_id).all()
+    count = 0
+    for e in entities:
+        name = e.name_cn or ""
+        if len(name) < 2:
+            continue
+        if name in text:
+            count += 1
+            continue
+        bigrams = {name[i:i+2] for i in range(len(name) - 1)}
+        bg_hits = sum(1 for bg in bigrams if bg in text)
+        if bg_hits / max(len(bigrams), 1) >= 0.7:
+            count += 1
+    return count
+
+
+# ══════════════════════════════════════════════════════════════════════
+# POST /auto-match  — 根据情报文本自动匹配最佳知识本体
+# ══════════════════════════════════════════════════════════════════════
+
+@router.post("/auto-match")
+def auto_match(
+    body: IntelForwardRequest,
+    db: Session = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """
+    根据情报文本，在所有本体项目中自动匹配实体最多的那个。
+    返回最佳匹配本体 ID 及所有本体的匹配分数排行。
+    """
+    text = body.intel_text.strip()
+    if not text:
+        raise HTTPException(400, "intel_text is required")
+
+    projects = db.query(OntologyProject).all()
+    if not projects:
+        raise HTTPException(404, "没有任何本体项目")
+
+    # 对每个本体做轻量实体匹配，记录分数
+    scored: list[dict] = []
+    for p in projects:
+        cnt = _quick_match_count(p.id, text, db)
+        scored.append({
+            "ontology_id": p.id,
+            "ontology_name": p.name,
+            "domain": p.domain or "",
+            "match_count": cnt,
+            "has_webhook": bool((p.agent_webhook_url or "").strip()),
+        })
+
+    # 按匹配数降序，同分优先有 webhook 的
+    scored.sort(key=lambda x: (x["match_count"], x["has_webhook"]), reverse=True)
+    best = scored[0]
+
+    if best["match_count"] == 0:
+        return {"data": {
+            "matched": False,
+            "message": "未能在任何本体中匹配到实体，请确认情报文本内容",
+            "candidates": scored,
+        }}
+
+    return {"data": {
+        "matched": True,
+        "best_ontology_id": best["ontology_id"],
+        "best_ontology_name": best["ontology_name"],
+        "match_count": best["match_count"],
+        "candidates": scored,
+    }}
+
+
+# ══════════════════════════════════════════════════════════════════════
+# POST /auto-forward  — 自动匹配本体 + 分析 + 转发
+# ══════════════════════════════════════════════════════════════════════
+
+@router.post("/auto-forward")
+def auto_forward(
+    body: IntelForwardRequest,
+    db: Session = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """
+    一步完成：自动匹配最佳本体 → 执行情报分析 → 推送到该本体的 webhook。
+
+    - 无需前端传入 ontology_id，系统自动选择匹配实体最多的本体
+    - 若没有本体能匹配到实体，返回提示
+    - 若匹配到的本体未配置 webhook，只返回分析结果，不推送
+    """
+    text = body.intel_text.strip()
+    if not text:
+        raise HTTPException(400, "intel_text is required")
+
+    projects = db.query(OntologyProject).all()
+    if not projects:
+        raise HTTPException(404, "没有任何本体项目")
+
+    # 自动匹配
+    best_oid, best_name, best_count = None, None, 0
+    for p in projects:
+        cnt = _quick_match_count(p.id, text, db)
+        if cnt > best_count:
+            best_count = cnt
+            best_oid = p.id
+            best_name = p.name
+
+    if best_count == 0:
+        return {"data": {
+            "matched": False,
+            "message": "未能在任何本体中匹配到实体，无法分析",
+        }}
+
+    project = db.query(OntologyProject).filter(OntologyProject.id == best_oid).first()
+    url_string = (project.agent_webhook_url or "").strip() if project else ""
+
+    # 执行完整分析
+    payload = _run_intel_analysis(best_oid, text, db)
+    payload["forwarded_at"] = datetime.now(timezone.utc).isoformat()
+    payload["project_id"] = best_oid
+    payload["forward_type"] = "auto"
+
+    # 异步推送
+    webhook_task_id = None
+    if url_string:
+        from app.tasks.webhook import send_webhook
+        urls = _parse_multi_urls(url_string)
+        target = urls[0] if urls else url_string
+        task = send_webhook.delay(target_url=target, payload=payload)
+        webhook_task_id = task.id
+
+    return {"data": {
+        "matched": True,
+        "best_ontology_id": best_oid,
+        "best_ontology_name": best_name,
+        "match_count": best_count,
+        "success": True,
+        "webhook_url": url_string,
+        "webhook_task_id": webhook_task_id,
+        "payload": payload,
+    }}
+
+
 def _parse_multi_urls(url_string: str) -> list[str]:
     """支持逗号/分号/换行分隔多个 webhook URL，过滤空白项。"""
     if not url_string or not url_string.strip():

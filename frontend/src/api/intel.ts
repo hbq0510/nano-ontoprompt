@@ -50,4 +50,10 @@ export const intelApi = {
 
   forward: (ontologyId: string, intelText: string) =>
     apiClientV2.post<{ success: boolean; message: string; webhook_url: string; payload: any }>(`/intel-demo/${ontologyId}/forward`, { intel_text: intelText }),
+
+  autoMatch: (intelText: string) =>
+    apiClientV2.post<{ matched: boolean; best_ontology_id?: string; best_ontology_name?: string; match_count: number; candidates: any[] }>('/intel-demo/auto-match', { intel_text: intelText }),
+
+  autoForward: (intelText: string) =>
+    apiClientV2.post<{ matched: boolean; best_ontology_id?: string; best_ontology_name?: string; match_count: number; success: boolean; webhook_url: string; webhook_task_id?: string; payload: any }>('/intel-demo/auto-forward', { intel_text: intelText }),
 }
