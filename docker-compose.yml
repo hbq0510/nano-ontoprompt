@@ -93,7 +93,7 @@ services:
       chromadb:
         condition: service_healthy
     volumes: [./backend:/app, ./uploads:/uploads]
-    command: celery -A app.tasks.extraction worker --loglevel=info
+    command: celery -A app.tasks worker --loglevel=info --autoscale=10,2
 
   frontend:
     build: ./frontend

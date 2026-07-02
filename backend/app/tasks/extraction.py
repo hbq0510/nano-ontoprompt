@@ -1,11 +1,6 @@
 import os
-from celery import Celery
 from app.config import settings
-
-celery_app = Celery("ontoprompt", broker=settings.redis_url, backend=settings.redis_url)
-# broker 不可用时快速失败 (默认会长时间重试, 导致 API 请求阻塞)
-celery_app.conf.task_publish_retry = False
-celery_app.conf.broker_connection_timeout = 3
+from app.tasks import celery_app
 
 
 # ── Confidence calibration (Fix 5) ─────────────────────────────────────────
@@ -231,6 +226,8 @@ def run_extraction(self, task_id: str):
         }
 
         prompt_content = prompt.content
+        # 只要求 LLM 输出实体和关系，不要编造规则和动作
+        prompt_content += "\n\n【重要】只输出 entities 和 relations 两个字段，不要输出 logic_rules 和 actions。"
         # Inject prebuilt entities as constraints if provided by skill
         prebuilt = task.parameters.get("prebuilt_entities", [])
         if prebuilt:

@@ -56,3 +56,16 @@ class IntelAssessResponse(BaseModel):
     relation_count: int
     snapshots: list[IntelSnapshotOut]
     graph: GraphData
+
+
+class IntelForwardRequest(BaseModel):
+    """手动转发请求 — 传入情报文本，分析后推送到外部 agent"""
+    intel_text: str
+
+
+class IntelForwardResponse(BaseModel):
+    success: bool
+    message: str
+    webhook_url: str
+    webhook_task_id: str | None = None  # Celery 异步任务 ID，用于追踪推送状态
+    payload: dict  # 实际发送给外部 agent 的内容

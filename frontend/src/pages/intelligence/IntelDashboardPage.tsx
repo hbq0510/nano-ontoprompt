@@ -4,7 +4,7 @@ import { intelApi } from '@/api/intel'
 import { ontologyApi } from '@/api/ontologies'
 import type { OntologyListItem } from '@/types/ontology'
 import { DANGER_LABELS, DANGER_COLORS } from '@/types/intel'
-import { Send, Loader2, Shield, Link2, Crosshair, Zap, Search, Brain, Undo2 } from 'lucide-react'
+import { Send, Loader2, Shield, Link2, Crosshair, Zap, Search, Brain, Undo2, Lightbulb, Check, X } from 'lucide-react'
 import cytoscape from 'cytoscape'
 
 const TYPE_COLORS: Record<string, string> = {
@@ -68,6 +68,12 @@ export default function IntelDashboardPage() {
   const [deepLoading, setDeepLoading] = useState(false)
   const [graphData, setGraphData] = useState<{ nodes: any[]; edges: any[] } | null>(null)
   const [lastDeepExtractTime, setLastDeepExtractTime] = useState<string | null>(null)
+  const [suggestLoading, setSuggestLoading] = useState(false)
+  const [suggestions, setSuggestions] = useState<{
+    suggested_rules: Array<{ name_cn: string; formula: string; description: string; linked_entities: string[] }>
+    suggested_actions: Array<{ name_cn: string; execution_rule: string; description: string; linked_entities: string[] }>
+  } | null>(null)
+  const [approving, setApproving] = useState<string | null>(null)
 
   // ── Load ontology list ──────────────────────────────────────────
   useEffect(() => {
@@ -152,6 +158,50 @@ export default function IntelDashboardPage() {
     } catch (err: any) {
       alert(err?.detail || err?.message || '撤回失败')
     }
+  }
+
+  // ── Rule Suggestions ────────────────────────────────────────────
+  const handleSuggestRules = async () => {
+    if (!selectedOid) return
+    setSuggestLoading(true)
+    setSuggestions(null)
+    try {
+      const res = await intelApi.suggestRules(selectedOid) as any
+      setSuggestions(res.suggestions || null)
+      if (!res.suggestions?.suggested_rules?.length && !res.suggestions?.suggested_actions?.length) {
+        alert(res.message || '没有可建议的新规则')
+      }
+    } catch (err: any) {
+      alert(err?.detail || err?.message || '建议生成失败')
+    } finally {
+      setSuggestLoading(false)
+    }
+  }
+
+  const handleApproveRule = async (rule: any) => {
+    if (!selectedOid) return
+    setApproving(rule.name_cn)
+    try {
+      await intelApi.approveRule(selectedOid, rule)
+      setSuggestions(prev => prev ? {
+        ...prev,
+        suggested_rules: prev.suggested_rules.filter((r: any) => r.name_cn !== rule.name_cn),
+      } : null)
+    } catch (err: any) { alert(err?.detail || '采纳失败') }
+    finally { setApproving(null) }
+  }
+
+  const handleApproveAction = async (action: any) => {
+    if (!selectedOid) return
+    setApproving(action.name_cn)
+    try {
+      await intelApi.approveAction(selectedOid, action)
+      setSuggestions(prev => prev ? {
+        ...prev,
+        suggested_actions: prev.suggested_actions.filter((a: any) => a.name_cn !== action.name_cn),
+      } : null)
+    } catch (err: any) { alert(err?.detail || '采纳失败') }
+    finally { setApproving(null) }
   }
 
   // ── Cytoscape graph ─────────────────────────────────────────────
@@ -265,6 +315,15 @@ export default function IntelDashboardPage() {
               <Undo2 size={14} />
               撤回
             </button>
+            <button
+              onClick={handleSuggestRules}
+              disabled={!selectedOid || suggestLoading}
+              className="shrink-0 flex items-center gap-1.5 px-3 py-2 border border-amber-200 rounded-lg text-sm text-amber-700 hover:bg-amber-50 disabled:opacity-50"
+              title="LLM 分析历史情报，归纳建议新规则"
+            >
+              {suggestLoading ? <Loader2 size={14} className="animate-spin" /> : <Lightbulb size={14} />}
+              建议
+            </button>
           </div>
         </div>
       </div>
@@ -356,6 +415,85 @@ export default function IntelDashboardPage() {
           )}
         </div>
       </div>
+
+      {/* Suggestions panel */}
+      {suggestions && (suggestions.suggested_rules?.length > 0 || suggestions.suggested_actions?.length > 0) && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+            <Lightbulb size={16} className="text-amber-600" />
+            LLM 归纳建议（人工审核后采纳）
+          </h3>
+          <div className="grid grid-cols-2 gap-4">
+            {/* Suggested rules */}
+            {suggestions.suggested_rules?.length > 0 && (
+              <div>
+                <h4 className="text-xs font-medium text-gray-600 mb-2">建议新增规则</h4>
+                <div className="space-y-2">
+                  {suggestions.suggested_rules.map((r: any, i: number) => (
+                    <div key={i} className="bg-white border rounded-lg p-3 text-xs">
+                      <div className="font-medium text-amber-800 mb-1">{r.name_cn}</div>
+                      <div className="text-gray-600 mb-1">{r.formula}</div>
+                      {r.description && <div className="text-gray-400 mb-2">{r.description}</div>}
+                      <div className="flex gap-1 flex-wrap mb-2">
+                        {(r.linked_entities || []).map((le: string) => (
+                          <span key={le} className="bg-gray-100 px-1.5 py-0.5 rounded text-[10px]">{le}</span>
+                        ))}
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleApproveRule(r)}
+                          disabled={approving === r.name_cn}
+                          className="flex items-center gap-1 px-2 py-1 bg-green-600 text-white rounded text-[11px] hover:bg-green-700 disabled:opacity-50"
+                        >
+                          {approving === r.name_cn ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}
+                          采纳
+                        </button>
+                        <button
+                          onClick={() => setSuggestions(prev => prev ? { ...prev, suggested_rules: prev.suggested_rules.filter((x: any) => x.name_cn !== r.name_cn) } : null)}
+                          className="flex items-center gap-1 px-2 py-1 border rounded text-[11px] hover:bg-gray-50"
+                        >
+                          <X size={10} /> 忽略
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* Suggested actions */}
+            {suggestions.suggested_actions?.length > 0 && (
+              <div>
+                <h4 className="text-xs font-medium text-gray-600 mb-2">建议新增动作</h4>
+                <div className="space-y-2">
+                  {suggestions.suggested_actions.map((a: any, i: number) => (
+                    <div key={i} className="bg-white border rounded-lg p-3 text-xs">
+                      <div className="font-medium text-amber-800 mb-1">{a.name_cn}</div>
+                      <div className="text-gray-600 mb-1">{a.execution_rule}</div>
+                      {a.description && <div className="text-gray-400 mb-2">{a.description}</div>}
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleApproveAction(a)}
+                          disabled={approving === a.name_cn}
+                          className="flex items-center gap-1 px-2 py-1 bg-green-600 text-white rounded text-[11px] hover:bg-green-700 disabled:opacity-50"
+                        >
+                          {approving === a.name_cn ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}
+                          采纳
+                        </button>
+                        <button
+                          onClick={() => setSuggestions(prev => prev ? { ...prev, suggested_actions: prev.suggested_actions.filter((x: any) => x.name_cn !== a.name_cn) } : null)}
+                          className="flex items-center gap-1 px-2 py-1 border rounded text-[11px] hover:bg-gray-50"
+                        >
+                          <X size={10} /> 忽略
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

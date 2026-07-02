@@ -6,8 +6,10 @@ Layer 2 (异步, 后台): LLM 深度抽取 → 增量更新本体
 
 端点：
   POST /init
-  POST /{oid}/assess-quick  — Layer 1: 快速威胁评估
-  POST /{oid}/submit        — Layer 2: 异步 LLM 抽取（后台更新本体）
+  POST /{oid}/assess-quick    — Layer 1: 快速威胁评估
+  POST /{oid}/submit          — Layer 2: 异步 LLM 抽取
+  POST /{oid}/suggest-rules   — LLM 归纳情报 → 候选规则/动作
+  POST /{oid}/approve-rule    — 管理员采纳建议 → 写入规则库
   GET  /{oid}/snapshots
   GET  /{oid}/assess
   GET  /{oid}/graph
@@ -36,6 +38,8 @@ from app.schemas.intel import (
     IntelSnapshotOut,
     IntelAssessResponse,
     GraphData,
+    IntelForwardRequest,
+    IntelForwardResponse,
 )
 from app.services.intel_analyzer import calculate_danger, generate_recommendations
 import uuid
@@ -73,38 +77,22 @@ def init_session(
 
 
 # ══════════════════════════════════════════════════════════════════════
-# POST /{ontology_id}/assess-quick  — Layer 1 快速威胁评估
+# 公共函数：情报分析逻辑（供 assess-quick 和 forward 复用）
 # ══════════════════════════════════════════════════════════════════════
 
-@router.post("/{ontology_id}/assess-quick")
-def assess_quick(
-    ontology_id: str,
-    body: IntelSubmitRequest,
-    db: Session = Depends(get_db),
-    _=Depends(get_current_user),
-):
+def _run_intel_analysis(ontology_id: str, text: str, db: Session) -> dict:
     """
-    Layer 1 — 同步快速评估（不调 LLM）。
-
-    1. 情报文本关键词匹配知识本体中已有实体
-    2. 找到被触发的逻辑规则（linked_entities 命中）
-    3. 找到被触发的动作（linked_entities 或 linked_logic_ids 命中）
-    4. 计算危险等级
-    5. 立即返回（不创建快照，不写入数据库）
+    执行完整的情报分析（关键词匹配 → 触发规则/动作 → 危险评估）。
+    返回 dict，供 API 响应和转发共用。
     """
     project = db.query(OntologyProject).filter(OntologyProject.id == ontology_id).first()
     if not project:
         raise HTTPException(404, "Ontology not found")
 
-    text = body.intel_text.strip()
-    if not text:
-        raise HTTPException(400, "intel_text is required")
-
     # 1. 获取知识本体中所有实体
     all_entities = db.query(Entity).filter(Entity.ontology_id == ontology_id).all()
     if not all_entities:
-        # 本体为空，直接返回基础评估
-        return {"data": {
+        return {
             "ontology_id": ontology_id,
             "ontology_name": project.name,
             "matched_entities": [],
@@ -114,26 +102,20 @@ def assess_quick(
             "danger_score": 0.0,
             "recommendations": ["保持监视", "常规巡逻"],
             "mode": "baseline",
-        }}
+        }
 
-    # 2. 关键词匹配：2-gram + 精确包含，不再用单字重叠和泛化类型匹配
+    # 2. 关键词匹配：2-gram + 精确包含
     matched: list[dict] = []
     for e in all_entities:
         name = e.name_cn or ""
         if len(name) < 2:
             continue
-
-        # 精确包含（整词匹配）
         exact = name in text
-
-        # 2-gram 匹配：实体名的 2 字片段在情报中出现过半则命中
         bigrams = set()
         for i in range(len(name) - 1):
             bigrams.add(name[i:i+2])
         bg_hits = sum(1 for bg in bigrams if bg in text)
         bg_ratio = bg_hits / max(len(bigrams), 1)
-
-        # 综合判定：精确 或 2-gram 命中≥70%（避免"中程弹道导弹"被"弹道导弹"误命中）
         if exact or bg_ratio >= 0.7:
             matched.append({
                 "id": e.id,
@@ -195,9 +177,7 @@ def assess_quick(
                 "confidence": a.confidence or 1.0,
             })
 
-    # 5. 危险评估（仅对匹配到的实体 + 它们之间的关系）
-    matched_entity_list = [{"name_cn": m["name_cn"], "type": m["type"]} for m in matched]
-    # 找出涉及匹配实体的关系
+    # 5. 危险评估
     all_relations = db.query(Relation).filter(Relation.ontology_id == ontology_id).all()
     matched_relation_list: list[dict] = []
     for r in all_relations:
@@ -207,17 +187,18 @@ def assess_quick(
                 "type": r.type or "关联",
             })
 
-    if matched_entity_list:
-        score, level = calculate_danger(matched_entity_list, matched_relation_list)
+    if matched:
+        matched_entity_list = [{"name_cn": m["name_cn"], "type": m["type"], "id": m["id"]} for m in matched]
+        score, level = calculate_danger(matched_entity_list, matched_relation_list, intel_text=text)
     else:
+        matched_entity_list = []
         score, level = 0.0, "low"
 
-    # 综合建议：规则触发的动作 + 引擎建议
     action_recs = [a["name_cn"] for a in triggered_actions[:3]]
     engine_recs = generate_recommendations(level, matched_entity_list, matched_relation_list)
     all_recs = action_recs + [r for r in engine_recs if r not in action_recs]
 
-    return {"data": {
+    return {
         "ontology_id": ontology_id,
         "ontology_name": project.name,
         "matched_entities": matched,
@@ -227,8 +208,111 @@ def assess_quick(
         "danger_score": score,
         "recommendations": all_recs[:5],
         "mode": "quick",
-    }}
+    }
 
+
+# ══════════════════════════════════════════════════════════════════════
+# POST /{ontology_id}/assess-quick  — Layer 1 快速威胁评估
+# ══════════════════════════════════════════════════════════════════════
+
+@router.post("/{ontology_id}/assess-quick")
+def assess_quick(
+    ontology_id: str,
+    body: IntelSubmitRequest,
+    db: Session = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """
+    Layer 1 — 同步快速评估（不调 LLM）。
+
+    1. 情报文本关键词匹配知识本体中已有实体
+    2. 找到被触发的逻辑规则（linked_entities 命中）
+    3. 找到被触发的动作（linked_entities 或 linked_logic_ids 命中）
+    4. 计算危险等级
+    5. 立即返回（不创建快照，不写入数据库）
+    """
+    text = body.intel_text.strip()
+    if not text:
+        raise HTTPException(400, "intel_text is required")
+
+    result = _run_intel_analysis(ontology_id, text, db)
+    return {"data": result}
+
+
+
+# ══════════════════════════════════════════════════════════════════════
+# POST /{ontology_id}/forward  — 转发情报分析结果到外部 agent
+# ══════════════════════════════════════════════════════════════════════
+
+@router.post("/{ontology_id}/forward")
+def forward_intel(
+    ontology_id: str,
+    body: IntelForwardRequest,
+    db: Session = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """
+    执行情报分析，然后通过 Celery 异步任务将结果推送到项目配置的外部 agent。
+
+    - 若项目未配置 agent_webhook_url，返回 400 错误
+    - 推送由通用 Celery 任务 send_webhook 异步执行，支持失败重试和完整日志
+    - 响应中返回 webhook_task_id 便于追踪推送状态
+    - 推送完全异步，不阻塞接口响应
+    """
+    project = db.query(OntologyProject).filter(OntologyProject.id == ontology_id).first()
+    if not project:
+        raise HTTPException(404, "Ontology not found")
+
+    text = body.intel_text.strip()
+    if not text:
+        raise HTTPException(400, "intel_text is required")
+
+    # 执行分析
+    payload = _run_intel_analysis(ontology_id, text, db)
+
+    # 添加时间戳便于追溯
+    payload["forwarded_at"] = datetime.now(timezone.utc).isoformat()
+    payload["project_id"] = ontology_id
+    payload["forward_type"] = "manual"
+
+    # ── 通用 Webhook 推送 ──────────────────────────────────────────
+    webhook_task_id = None
+    url_string = (project.agent_webhook_url or "").strip()
+
+    # 【扩展点】多地址支持：逗号/分号/换行分隔多个 webhook URL
+    # 当前仅取第一个地址发送，后续前端支持多地址时改为遍历全部
+    if url_string:
+        from app.tasks.webhook import send_webhook
+        # 解析多地址（预留），当前仅用第一个
+        urls = _parse_multi_urls(url_string)
+        target = urls[0] if urls else url_string
+        task = send_webhook.delay(target_url=target, payload=payload)
+        webhook_task_id = task.id
+
+    if webhook_task_id:
+        message = f"分析完成，已提交 Celery 异步推送（任务ID: {webhook_task_id}，目标: {url_string}）"
+    else:
+        message = "分析完成，未配置外部 agent 地址，跳过推送"
+
+    return {
+        "data": IntelForwardResponse(
+            success=True,
+            message=message,
+            webhook_url=url_string,
+            webhook_task_id=webhook_task_id,
+            payload=payload,
+        )
+    }
+
+
+# ── 多地址解析辅助函数 ─────────────────────────────────────────────
+
+def _parse_multi_urls(url_string: str) -> list[str]:
+    """支持逗号/分号/换行分隔多个 webhook URL，过滤空白项。"""
+    if not url_string or not url_string.strip():
+        return []
+    parts = [s.strip() for s in url_string.replace(";", ",").replace("\n", ",").split(",")]
+    return [p for p in parts if p]
 
 # ══════════════════════════════════════════════════════════════════════
 # POST /{ontology_id}/submit  — Layer 2 异步深度抽取
@@ -542,8 +626,206 @@ def undo_last_extraction(
 
 
 # ══════════════════════════════════════════════════════════════════════
-# GET /{ontology_id}/graph
+# POST /{ontology_id}/suggest-rules  — LLM 归纳情报 → 候选规则/动作
 # ══════════════════════════════════════════════════════════════════════
+
+@router.post("/{ontology_id}/suggest-rules")
+def suggest_rules(
+    ontology_id: str,
+    db: Session = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """LLM 分析历史情报，归纳建议新增的规则和动作。需人工审核后采纳。"""
+    project = db.query(OntologyProject).filter(OntologyProject.id == ontology_id).first()
+    if not project:
+        raise HTTPException(404, "Ontology not found")
+
+    # 先同步快照状态：检查 extraction_task 是否已完成
+    extracting_snaps = (
+        db.query(IntelSnapshot)
+        .filter(IntelSnapshot.ontology_id == ontology_id, IntelSnapshot.status == "extracting")
+        .all()
+    )
+    for s in extracting_snaps:
+        if s.extraction_task_id:
+            task = db.query(ExtractionTask).filter(ExtractionTask.id == s.extraction_task_id).first()
+            if task and task.status in ("completed", "failed"):
+                s.status = "completed" if task.status == "completed" else "failed"
+    if extracting_snaps:
+        db.commit()
+
+    # 收集已完成的情报快照
+    snapshots = (
+        db.query(IntelSnapshot)
+        .filter(IntelSnapshot.ontology_id == ontology_id, IntelSnapshot.status == "completed")
+        .order_by(IntelSnapshot.created_at.asc())
+        .all()
+    )
+    if len(snapshots) < 2:
+        return {"data": {"suggestions": [], "message": "至少需要2条已完成的情报才能归纳建议"}}
+
+    # 组装历史情报文本
+    intel_history = "\n\n".join(
+        f"[{s.label}] {s.intel_text}" for s in snapshots
+    )
+
+    # 获取现有规则和动作
+    existing_rules = db.query(LogicRule).filter(LogicRule.ontology_id == ontology_id).all()
+    existing_actions = db.query(Action).filter(Action.ontology_id == ontology_id).all()
+    existing_rule_names = [r.name_cn for r in existing_rules]
+    existing_action_names = [a.name_cn for a in existing_actions]
+
+    # 构建 LLM 提示词
+    system_prompt = """你是军事情报分析专家。请分析以下历史情报序列，找出其中反复出现的模式，归纳出应该新增的逻辑规则和战术动作。
+
+要求：
+1. 每条建议规则必须有 IF-THEN 公式、描述、关联实体名列表
+2. 每条建议动作必须有执行规则描述、关联实体名列表
+3. 不要重复已有规则，只输出真正有价值的新增建议
+4. 最多输出3条规则、3个动作
+
+返回JSON：
+{
+  "suggested_rules": [
+    {"name_cn": "规则名", "formula": "IF 条件 THEN 结论", "description": "为什么需要这条规则", "linked_entities": ["实体名1", "实体名2"]}
+  ],
+  "suggested_actions": [
+    {"name_cn": "动作名", "execution_rule": "触发条件描述", "description": "为什么需要这个动作", "linked_entities": ["实体名1"]}
+  ]
+}"""
+
+    user_prompt = f"""已有规则：{existing_rule_names}
+已有动作：{existing_action_names}
+
+历史情报序列：
+{intel_history}
+
+请基于以上情报，归纳建议应该新增的规则和动作。"""
+
+    # 调用 LLM
+    try:
+        model_cfg = db.query(ModelConfig).order_by(ModelConfig.created_at.asc()).first()
+        if not model_cfg:
+            raise HTTPException(400, "没有可用的模型配置")
+
+        from app.services.encryption_service import decrypt
+        from app.services.llm_service import _call_llm, _parse_response
+
+        api_key = decrypt(model_cfg.api_key_encrypted or "")
+        model_name = (model_cfg.models or [""])[0] if model_cfg.models else ""
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        raw = _call_llm(
+            model_cfg.provider, api_key, model_cfg.api_base, model_name, messages, json_mode=True
+        )
+        result = _parse_response(raw)
+
+        suggestions = {
+            "suggested_rules": result.get("suggested_rules", [])[:3],
+            "suggested_actions": result.get("suggested_actions", [])[:3],
+        }
+
+    except Exception as e:
+        raise HTTPException(500, f"LLM 调用失败: {str(e)}")
+
+    return {"data": {
+        "suggestions": suggestions,
+        "snapshot_count": len(snapshots),
+        "message": f"基于 {len(snapshots)} 条历史情报生成建议",
+    }}
+
+
+# ══════════════════════════════════════════════════════════════════════
+# POST /{ontology_id}/approve-rule  — 管理员采纳建议 → 写入规则库
+# ══════════════════════════════════════════════════════════════════════
+
+from pydantic import BaseModel as PydanticBase
+
+class ApproveRuleBody(PydanticBase):
+    name_cn: str
+    formula: str = ""
+    description: str = ""
+    linked_entities: list[str] = []
+
+class ApproveActionBody(PydanticBase):
+    name_cn: str
+    execution_rule: str = ""
+    description: str = ""
+    linked_entities: list[str] = []
+
+
+@router.post("/{ontology_id}/approve-rule")
+def approve_rule(
+    ontology_id: str,
+    body: ApproveRuleBody,
+    db: Session = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """管理员审核通过一条规则建议，写入 logic_rules 表。"""
+    project = db.query(OntologyProject).filter(OntologyProject.id == ontology_id).first()
+    if not project:
+        raise HTTPException(404, "Ontology not found")
+
+    # 去重
+    existing = db.query(LogicRule).filter(
+        LogicRule.ontology_id == ontology_id,
+        LogicRule.name_cn == body.name_cn,
+    ).first()
+    if existing:
+        return {"data": {"added": False, "message": f"规则「{body.name_cn}」已存在"}}
+
+    rule = LogicRule(
+        id=str(uuid.uuid4()),
+        ontology_id=ontology_id,
+        name_cn=body.name_cn,
+        formula=body.formula,
+        description=body.description,
+        confidence=0.85,
+    )
+    rule.linked_entities = body.linked_entities
+    db.add(rule)
+    db.commit()
+
+    return {"data": {"added": True, "rule_id": rule.id, "message": f"规则「{body.name_cn}」已添加"}}
+
+
+@router.post("/{ontology_id}/approve-action")
+def approve_action(
+    ontology_id: str,
+    body: ApproveActionBody,
+    db: Session = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """管理员审核通过一个动作建议，写入 actions 表。"""
+    project = db.query(OntologyProject).filter(OntologyProject.id == ontology_id).first()
+    if not project:
+        raise HTTPException(404, "Ontology not found")
+
+    existing = db.query(Action).filter(
+        Action.ontology_id == ontology_id,
+        Action.name_cn == body.name_cn,
+    ).first()
+    if existing:
+        return {"data": {"added": False, "message": f"动作「{body.name_cn}」已存在"}}
+
+    action = Action(
+        id=str(uuid.uuid4()),
+        ontology_id=ontology_id,
+        name_cn=body.name_cn,
+        execution_rule=body.execution_rule,
+        description=body.description,
+        linked_entities=body.linked_entities,
+        confidence=0.85,
+    )
+    db.add(action)
+    db.commit()
+
+    return {"data": {"added": True, "action_id": action.id, "message": f"动作「{body.name_cn}」已添加"}}
+
 
 @router.get("/{ontology_id}/graph")
 def get_graph(

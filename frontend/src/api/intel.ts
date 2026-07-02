@@ -35,4 +35,19 @@ export const intelApi = {
 
   undoLast: (ontologyId: string) =>
     apiClientV2.post<{ reverted: boolean; message: string; snapshot_label?: string; reverted_entities?: number }>(`/intel-demo/${ontologyId}/undo-last`),
+
+  suggestRules: (ontologyId: string) =>
+    apiClientV2.post<{
+      suggestions: { suggested_rules: Array<{ name_cn: string; formula: string; description: string; linked_entities: string[] }>; suggested_actions: Array<{ name_cn: string; execution_rule: string; description: string; linked_entities: string[] }> }
+      snapshot_count: number; message: string
+    }>(`/intel-demo/${ontologyId}/suggest-rules`),
+
+  approveRule: (ontologyId: string, rule: { name_cn: string; formula: string; description: string; linked_entities: string[] }) =>
+    apiClientV2.post<{ added: boolean; rule_id?: string; message: string }>(`/intel-demo/${ontologyId}/approve-rule`, rule),
+
+  approveAction: (ontologyId: string, action: { name_cn: string; execution_rule: string; description: string; linked_entities: string[] }) =>
+    apiClientV2.post<{ added: boolean; action_id?: string; message: string }>(`/intel-demo/${ontologyId}/approve-action`, action),
+
+  forward: (ontologyId: string, intelText: string) =>
+    apiClientV2.post<{ success: boolean; message: string; webhook_url: string; payload: any }>(`/intel-demo/${ontologyId}/forward`, { intel_text: intelText }),
 }
