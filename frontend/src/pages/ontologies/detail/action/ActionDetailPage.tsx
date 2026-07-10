@@ -289,6 +289,50 @@ export default function ActionDetailPage() {
         )}
       </div>
 
+      {/* Submission Criteria — 结构化提交条件 */}
+      {((action as any).target_entity_type || ((action as any).submission_criteria || []).length > 0 || (action as any).needs_review) && (
+        <div className="bg-white border rounded-xl p-6">
+          <h3 className="font-semibold mb-3">提交条件（Submission Criteria）</h3>
+          <p className="text-xs text-gray-400 mb-3">程序可机械校验的触发条件。只有全部条件通过，该动作才算"可提交"。</p>
+          {(action as any).target_entity_type && (
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-xs text-gray-500">目标实体类型（target_entity_type）：</span>
+              <span className="text-xs font-mono bg-blue-50 text-blue-700 px-2 py-0.5 rounded">{String((action as any).target_entity_type)}</span>
+            </div>
+          )}
+          {((action as any).submission_criteria || []).length > 0 ? (
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-3 py-2 text-left text-xs text-gray-500 font-medium">字段</th>
+                  <th className="px-3 py-2 text-left text-xs text-gray-500 font-medium">操作符</th>
+                  <th className="px-3 py-2 text-left text-xs text-gray-500 font-medium">阈值</th>
+                </tr>
+              </thead>
+              <tbody>
+                {((action as any).submission_criteria || []).map((c: any, i: number) => (
+                  <tr key={i} className="border-t">
+                    <td className="px-3 py-2 font-mono text-xs text-gray-700">{c.field}</td>
+                    <td className="px-3 py-2 text-xs">
+                      <span className="bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded text-[10px] font-medium">{c.op}</span>
+                    </td>
+                    <td className="px-3 py-2 text-xs text-gray-600 font-mono">{JSON.stringify(c.value)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="text-sm text-gray-400">暂无结构化提交条件（仅有人类可读的 execution_rule）</p>
+          )}
+          {(action as any).needs_review && (
+            <div className="mt-3 flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
+              <span className="w-2 h-2 rounded-full bg-amber-500" />
+              <span className="text-xs text-amber-700 font-medium">需人工审核（needs_review=true）</span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Related Entities — inline link management */}
       <div className="bg-white border rounded-xl p-6">
         <div className="flex items-center justify-between mb-4">

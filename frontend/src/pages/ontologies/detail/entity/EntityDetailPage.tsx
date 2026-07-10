@@ -375,6 +375,39 @@ export default function EntityDetailPage() {
         )}
       </div>
 
+      {/* Property Schema — 可量化属性定义 */}
+      {(entity as any).property_schema && Object.keys((entity as any).property_schema || {}).length > 0 && (
+        <div className="bg-white border rounded-xl p-6">
+          <h3 className="font-semibold mb-3">可量化属性 Schema（property_schema）</h3>
+          <p className="text-xs text-gray-400 mb-3">该类型"有哪些字段可以被条件判断引用"——是 schema 定义，不是具体值。后续 rules/actions 的 conditions 只能引用这里列出的字段。</p>
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-3 py-2 text-left text-xs text-gray-500 font-medium">字段名</th>
+                <th className="px-3 py-2 text-left text-xs text-gray-500 font-medium">类型</th>
+                <th className="px-3 py-2 text-left text-xs text-gray-500 font-medium">单位</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries((entity as any).property_schema as Record<string, any>).map(([field, def]) => (
+                <tr key={field} className="border-t">
+                  <td className="px-3 py-2 font-mono text-xs text-gray-700">{field}</td>
+                  <td className="px-3 py-2 text-xs">
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                      def.type === 'number' ? 'bg-blue-50 text-blue-700' :
+                      def.type === 'string' ? 'bg-green-50 text-green-700' :
+                      def.type === 'boolean' ? 'bg-purple-50 text-purple-700' :
+                      'bg-gray-50 text-gray-600'
+                    }`}>{def.type || '—'}</span>
+                  </td>
+                  <td className="px-3 py-2 text-xs text-gray-500">{def.unit || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {/* Related Entities (graph) — editable */}
       <div className="bg-white border rounded-xl p-6">
         <div className="flex items-center justify-between mb-4">

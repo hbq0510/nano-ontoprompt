@@ -88,7 +88,23 @@ class PostHarnessValidator:
         if not isinstance(data, dict):
             report.add(Severity.FATAL, "INVALID_STRUCTURE", "LLM 输出不是合法的 JSON 对象")
             return
+
+        # Phase 2 格式：有 object_types/object_instances 时跳过旧 entities 检查
+        has_p2 = (isinstance(data.get("object_types"), list) and len(data.get("object_types",[])) > 0) or \
+                 (isinstance(data.get("object_instances"), list) and len(data.get("object_instances",[])) > 0)
+
         entities = data.get("entities")
+        if has_p2:
+            # Phase 2 格式不需要 entities 字段
+            if not isinstance(entities, list) or len(entities) == 0:
+                data["entities"] = data.get("entities") or []  # 给后续校验兜底
+            # 对 Phase 2 的 object_types 做基本校验
+            ots = data.get("object_types", [])
+            if not isinstance(ots, list) or len(ots) == 0:
+                report.add(Severity.WARNING, "EMPTY_OBJECT_TYPES",
+                           "object_types 为空，Phase 2 提取未产出类型定义")
+            return
+
         if not isinstance(entities, list):
             report.add(Severity.FATAL, "MISSING_ENTITIES", "缺少 entities 字段或类型错误（应为数组）")
             return

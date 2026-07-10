@@ -2,7 +2,7 @@
   "nav": {
     "overview": "Overview",
     "pipelines": "Pipelines",
-    "ontologies": "Ontologies",
+    "ontologies": "Ontology Spaces",
     "prompts": "Prompts",
     "models": "Models",
     "settings": "Settings",
@@ -34,8 +34,8 @@
     "login_error": "Invalid username or password"
   },
   "ontology": {
-    "title": "Ontology Management",
-    "create": "Create Ontology",
+    "title": "Ontology Space Management",
+    "create": "Create Ontology Space",
     "name": "Name",
     "domain": "Domain",
     "version": "Version",

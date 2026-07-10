@@ -156,7 +156,7 @@ def _call_llm(provider: str, api_key: str, api_base: str | None, model: str, mes
         import anthropic
         client = anthropic.Anthropic(api_key=api_key)
         resp = client.messages.create(
-            model=model, max_tokens=8192,
+            model=model, max_tokens=32768,
             system=messages[0]["content"],
             messages=[{"role": "user", "content": messages[1]["content"] + ("\n\n```json\n{" if json_mode else "")}],
         )
@@ -171,7 +171,7 @@ def _call_llm(provider: str, api_key: str, api_base: str | None, model: str, mes
         if api_base:
             kwargs["base_url"] = api_base
         client = openai.OpenAI(**kwargs)
-        create_kwargs: dict = {"model": model, "messages": messages, "timeout": 300, "max_tokens": 16384}
+        create_kwargs: dict = {"model": model, "messages": messages, "timeout": 300, "max_tokens": 32768}
         if json_mode:
             create_kwargs["response_format"] = {"type": "json_object"}
         resp = client.chat.completions.create(**create_kwargs)

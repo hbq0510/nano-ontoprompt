@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { ontologyApi } from '@/api/ontologies'
 import ConfidenceBar from '@/components/ConfidenceBar'
 import ConfirmDialog from '@/components/ConfirmDialog'
-import { Pencil, Trash2, Plus, Search } from 'lucide-react'
+import { Pencil, Trash2, Plus, Search, Layers, ChevronDown, ChevronUp } from 'lucide-react'
 import type { Entity, EntityTemplate } from '@/types/ontology'
 
 export default function EntitiesTab({ ontologyId }: { ontologyId: string }) {
@@ -15,6 +15,8 @@ export default function EntitiesTab({ ontologyId }: { ontologyId: string }) {
   const [showCreate, setShowCreate] = useState(false)
   const [searchQ, setSearchQ] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
+  const [groupByType, setGroupByType] = useState(false)
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [deleteTarget, setDeleteTarget] = useState<Entity | null>(null)
   const [createType, setCreateType] = useState('')
   const [createProps, setCreateProps] = useState<Record<string, string>>({})
@@ -56,6 +58,23 @@ export default function EntitiesTab({ ontologyId }: { ontologyId: string }) {
     })
   }, [entities, searchQ, typeFilter])
 
+  // 按类型分组
+  const groupedEntities = useMemo(() => {
+    const g: Record<string, Entity[]> = {}
+    filtered.forEach(e => {
+      const key = e.type || '未分类'
+      if (!g[key]) g[key] = []
+      g[key].push(e)
+    })
+    return g
+  }, [filtered])
+
+  const toggleGroup = (typeName: string) => {
+    const next = new Set(expandedGroups)
+    next.has(typeName) ? next.delete(typeName) : next.add(typeName)
+    setExpandedGroups(next)
+  }
+
   return (
     <div className="space-y-4">
       {/* Search bar */}
@@ -72,15 +91,71 @@ export default function EntitiesTab({ ontologyId }: { ontologyId: string }) {
           {allTypes.map(tp => <option key={tp} value={tp}>{tp}</option>)}
         </select>
       </div>
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        <button onClick={() => { setGroupByType(!groupByType); setExpandedGroups(new Set()) }}
+          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm border transition-colors ${
+            groupByType ? 'bg-blue-50 border-blue-300 text-blue-700' : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+          }`}>
+          <Layers size={14} /> 按类型分组
+        </button>
         <button onClick={() => { setShowCreate(true); setCreateType(''); setCreateProps({}) }}
           className="flex items-center gap-2 px-3 py-2 bg-black text-white rounded-lg text-sm">
           <Plus size={14} /> {t('entities.add')}
         </button>
       </div>
 
+      {/* Table / Grouped view */}
       <div className="bg-white border rounded-lg overflow-hidden">
-        {isLoading ? <p className="py-8 text-center text-gray-400">{t('common.loading')}</p> : (
+        {isLoading ? <p className="py-8 text-center text-gray-400">{t('common.loading')}</p> :
+        groupByType ? (
+          // ── 按类型分组视图 ──
+          <div className="divide-y">
+            {Object.entries(groupedEntities).sort(([a], [b]) => a.localeCompare(b)).map(([typeName, ents]) => {
+              const isExpanded = expandedGroups.has(typeName)
+              return (
+                <div key={typeName}>
+                  <button
+                    onClick={() => toggleGroup(typeName)}
+                    className="w-full flex items-center gap-2 px-4 py-3 bg-gray-50 hover:bg-gray-100 text-left text-sm font-medium"
+                  >
+                    {isExpanded ? <ChevronDown size={14} className="text-gray-400" /> : <ChevronUp size={14} className="text-gray-400" />}
+                    <span className="px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-700 border border-blue-200">{typeName}</span>
+                    <span className="text-gray-400 text-xs">({ents.length} 个实体)</span>
+                  </button>
+                  {isExpanded && (
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b">
+                          {[t('entities.col_name_cn'), t('entities.col_name_en'), t('entities.col_desc'), t('entities.col_confidence'), t('entities.col_actions')].map(h => (
+                            <th key={h} className="px-4 py-2 text-left text-gray-400 text-xs font-medium">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ents.map(e => (
+                          <tr key={e.id} className="border-b hover:bg-gray-50 cursor-pointer"
+                            onClick={() => navigate(`/ontologies/${ontologyId}/entities/${e.id}`)}>
+                            <td className="px-4 py-2.5 font-medium">{e.name_cn}</td>
+                            <td className="px-4 py-2.5 text-gray-500 text-xs">{e.name_en || '—'}</td>
+                            <td className="px-4 py-2.5 text-gray-500 max-w-xs truncate text-xs">{e.description || '—'}</td>
+                            <td className="px-4 py-2.5 w-28"><ConfidenceBar value={e.confidence} /></td>
+                            <td className="px-4 py-2.5" onClick={ev => ev.stopPropagation()}>
+                              <div className="flex items-center gap-2">
+                                <button onClick={() => navigate(`/ontologies/${ontologyId}/entities/${e.id}`)} title={t('common.edit')} className="p-1 rounded text-blue-500 hover:bg-blue-50"><Pencil size={13} /></button>
+                                <button onClick={() => setDeleteTarget(e)} title={t('common.delete')} className="p-1 rounded text-red-500 hover:bg-red-50"><Trash2 size={13} /></button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          // ── 平铺表格视图 ──
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b">
               <tr>{[t('entities.col_name_cn'), t('entities.col_name_en'), t('entities.col_type'), t('entities.col_desc'), t('entities.col_confidence'), t('entities.col_actions')].map(h => (

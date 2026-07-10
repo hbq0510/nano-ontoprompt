@@ -5,9 +5,9 @@ import { useTranslation } from 'react-i18next'
 import { ontologyApi, promptApi } from '@/api/ontologies'
 import { apiClientV2 } from '@/api/client'
 import { DOMAINS } from '@/types/ontology'
-import { Zap, GitBranch, ArrowLeft, ArrowRight, Loader2, CheckSquare, Square, CheckCircle, XCircle } from 'lucide-react'
+import { Zap, GitBranch, ArrowLeft, ArrowRight, Loader2, CheckSquare, Square, CheckCircle, XCircle, PenSquare } from 'lucide-react'
 
-type Mode = 'simple_llm' | 'pipeline_mapping'
+type Mode = 'simple_llm' | 'pipeline_mapping' | 'manual'
 type Step = 'select_mode' | 'fill_info' | 'select_datasets' | 'mapping_config' | 'building'
 
 interface CuratedDataset {
@@ -84,12 +84,14 @@ export default function OntologyCreateWizard() {
       if (mode === 'simple_llm') {
         const query = selectedPromptId ? `?tab=files&prompt_id=${encodeURIComponent(selectedPromptId)}` : '?tab=files'
         navigate(`/ontologies/${res.id}${query}`)
+      } else if (mode === 'manual') {
+        navigate(`/ontologies/${res.id}?tab=ontology-space`)
       } else {
         setCreatedOntologyId(res.id)
         setStep('select_datasets')
       }
     },
-    onError: (e: any) => { setError(e?.message || e?.detail?.message || '创建失败') },
+    onError: (e: any) => { setError(e?.response?.data?.detail?.message || e?.response?.data?.error || e?.message || '创建失败') },
   })
 
   useEffect(() => {
@@ -172,9 +174,9 @@ export default function OntologyCreateWizard() {
         <button onClick={() => navigate('/ontologies')} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-black mb-6">
           <ArrowLeft size={14} /> {t('ontology.back')}
         </button>
-        <h2 className="text-xl font-semibold mb-2">新建本体</h2>
+        <h2 className="text-xl font-semibold mb-2">创建本体空间</h2>
         <p className="text-sm text-gray-500 mb-8">选择构建方式</p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl">
           <button onClick={() => { setMode('simple_llm'); setStep('fill_info') }}
             className="group text-left p-6 rounded-xl border-2 transition-all hover:border-black hover:shadow-md border-gray-200">
             <div className="flex items-center gap-3 mb-3">
@@ -195,6 +197,16 @@ export default function OntologyCreateWizard() {
             <ul className="text-xs text-gray-500 space-y-1"><li>✓ 结构化/半结构化数据</li><li>✓ 精细化建模</li><li>✓ 企业级大规模数据</li></ul>
             <div className="mt-4 flex items-center gap-1 text-sm font-medium text-black">选择此方式 <ArrowRight size={14} /></div>
           </button>
+          <button onClick={() => { setMode('manual'); setStep('fill_info') }}
+            className="group text-left p-6 rounded-xl border-2 transition-all hover:border-black hover:shadow-md border-gray-200">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center"><PenSquare size={20} className="text-green-600" /></div>
+              <span className="font-semibold">手动创建</span>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">创建一个空的本体空间，手动添加实体、规则和动作。</p>
+            <ul className="text-xs text-gray-500 space-y-1"><li>✓ 完全自主定义</li><li>✓ 无数据依赖</li><li>✓ 适合精雕细琢的场景</li></ul>
+            <div className="mt-4 flex items-center gap-1 text-sm font-medium text-black">选择此方式 <ArrowRight size={14} /></div>
+          </button>
         </div>
       </div>
     )
@@ -206,8 +218,8 @@ export default function OntologyCreateWizard() {
         <button onClick={() => setStep('select_mode')} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-black mb-6">
           <ArrowLeft size={14} /> 返回选择方式
         </button>
-        <h2 className="text-xl font-semibold mb-1">新建本体</h2>
-        <p className="text-sm text-gray-400 mb-2">{mode === 'simple_llm' ? '⚡ 简易 LLM 提取' : '🔄 Pipeline Mapping'}</p>
+        <h2 className="text-xl font-semibold mb-1">创建本体空间</h2>
+        <p className="text-sm text-gray-400 mb-2">{mode === 'simple_llm' ? '⚡ 简易 LLM 提取' : mode === 'pipeline_mapping' ? '🔄 Pipeline Mapping' : '✏️ 手动创建'}</p>
         {mode === 'pipeline_mapping' && (
           <div className="flex gap-2 mb-6 text-xs">
             {['基本信息', '选择数据集', 'Mapping 配置'].map((s, i) => (
@@ -221,7 +233,7 @@ export default function OntologyCreateWizard() {
         )}
         <div className="bg-white rounded-xl border p-6 space-y-4">
           <div><label className="block text-xs font-medium text-gray-600 mb-1">名称 *</label>
-            <input value={name} onChange={e => setName(e.target.value)} placeholder="本体名称" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="本体空间名称" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
           {mode === 'simple_llm' ? (
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">提示词模板 *</label>
@@ -244,13 +256,13 @@ export default function OntologyCreateWizard() {
               <select value={domain} onChange={e => setDomain(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm">{DOMAINS.map(d => <option key={d}>{d}</option>)}</select></div>
           )}
           <div><label className="block text-xs font-medium text-gray-600 mb-1">描述（可选）</label>
-            <textarea value={desc} onChange={e => setDesc(e.target.value)} rows={2} placeholder="简要描述本体用途" className="w-full border rounded-lg px-3 py-2 text-sm resize-none" /></div>
+            <textarea value={desc} onChange={e => setDesc(e.target.value)} rows={2} placeholder="简要描述本体空间用途" className="w-full border rounded-lg px-3 py-2 text-sm resize-none" /></div>
           {error && <p className="text-red-500 text-xs">{error}</p>}
           <div className="flex justify-between pt-2">
             <button onClick={() => setStep('select_mode')} className="px-4 py-2 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">上一步</button>
             <button onClick={() => createMut.mutate()} disabled={!name || (mode === 'simple_llm' && !selectedPromptId) || createMut.isPending}
               className="px-5 py-2 bg-black text-white rounded-lg text-sm disabled:opacity-40 flex items-center gap-2">
-              {createMut.isPending && <Loader2 size={14} className="animate-spin" />}{mode === 'pipeline_mapping' ? '下一步' : '创建本体'}
+              {createMut.isPending && <Loader2 size={14} className="animate-spin" />}{mode === 'pipeline_mapping' ? '下一步' : '创建本体空间'}
             </button>
           </div>
         </div>

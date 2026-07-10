@@ -10,6 +10,9 @@ class ActionCreate(BaseModel):
     function_code: Optional[str] = None
     linked_entities: List[str] = []
     linked_logic_ids: List[str] = []
+    submission_criteria: Optional[List[dict]] = None
+    target_entity_type: Optional[str] = None
+    needs_review: bool = False
     confidence: Optional[float] = None
 
 class ActionUpdate(BaseModel):
@@ -20,6 +23,9 @@ class ActionUpdate(BaseModel):
     function_code: Optional[str] = None
     linked_entities: Optional[List[str]] = None
     linked_logic_ids: Optional[List[str]] = None
+    submission_criteria: Optional[List[dict]] = None
+    target_entity_type: Optional[str] = None
+    needs_review: Optional[bool] = None
     confidence: Optional[float] = None
 
 class ActionOut(BaseModel):
@@ -32,6 +38,9 @@ class ActionOut(BaseModel):
     function_code: Optional[str]
     linked_entities: List[str]
     linked_logic_ids: List[str]
+    submission_criteria: Optional[List[dict]] = None
+    target_entity_type: Optional[str] = None
+    needs_review: bool = False
     confidence: float
     version: str
     created_at: datetime

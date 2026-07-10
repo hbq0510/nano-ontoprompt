@@ -48,9 +48,11 @@ def get_graph(ontology_id: str, limit: int = 200, label_filter: str | None = Non
 def _sqlite_graph_data(ontology_id: str, limit: int = 200, label_filter: str | None = None) -> dict:
     from app.models.entity import Entity
     from app.models.relation import Relation
+    from app.models.v2.object_type import ObjectInstance, Link, LinkType
 
     db = SessionLocal()
     try:
+        # ── 旧 entities/relations ──
         query = db.query(Entity).filter(Entity.ontology_id == ontology_id)
         if label_filter:
             query = query.filter(Entity.type == label_filter)
@@ -74,25 +76,63 @@ def _sqlite_graph_data(ontology_id: str, limit: int = 200, label_filter: str | N
                 "labels": [e.type or "OntologyEntity"],
                 "properties": {
                     **(e.properties or {}),
-                    "id": e.id,
-                    "source_id": e.id,
+                    "id": e.id, "source_id": e.id,
                     "ontology_id": ontology_id,
-                    "name_cn": e.name_cn or "",
-                    "name_en": e.name_en or "",
+                    "name_cn": e.name_cn or "", "name_en": e.name_en or "",
                     "name": e.name_cn or e.name_en or e.id,
-                    "type": e.type or "",
-                    "description": e.description or "",
-                    "confidence": e.confidence or 1.0,
-                    "version": e.version or "v0.1",
+                    "type": e.type or "", "description": e.description or "",
+                    "confidence": e.confidence or 1.0, "version": e.version or "v0.1",
                 },
-            }
-            for e in entities
+            } for e in entities
         ]
+
+        # ── Phase 2: object_instances + links ──
+        ot_map: dict[str, str] = {}  # ot_id → name_cn
+        from app.models.v2.object_type import ObjectType as OT
+        for ot in db.query(OT).filter(OT.ontology_id == ontology_id).all():
+            ot_map[ot.id] = ot.name_cn or ot.name_en or ot.id
+
+        instances = db.query(ObjectInstance).filter(
+            ObjectInstance.ontology_id == ontology_id
+        ).limit(limit).all()
+        inst_ids = {oi.id for oi in instances}
+
+        # 类型标签 id -> name
+        lt_map: dict[str, str] = {}
+        for lt in db.query(LinkType).filter(LinkType.ontology_id == ontology_id).all():
+            lt_map[lt.id] = lt.name_cn or lt.name_en or lt.id
+
+        all_links = db.query(Link).filter(Link.ontology_id == ontology_id).all()
+        for link in all_links:
+            if link.source_instance_id in inst_ids and link.target_instance_id in inst_ids:
+                lt_name = lt_map.get(link.link_type_id, "RELATED")
+                edges.append({
+                    "id": link.id,
+                    "source": link.source_instance_id,
+                    "target": link.target_instance_id,
+                    "type": lt_name,
+                    "properties": {"confidence": link.confidence or 1.0},
+                })
+
+        for oi in instances:
+            ot_name = ot_map.get(oi.object_type_id, oi.object_type_id[:8] if oi.object_type_id else "Instance")
+            nodes.append({
+                "id": oi.id,
+                "labels": [ot_name],
+                "properties": {
+                    **(oi.properties or {}),
+                    "id": oi.id, "source_id": oi.id,
+                    "ontology_id": ontology_id,
+                    "name_cn": oi.name_cn or "", "name_en": oi.name_en or "",
+                    "name": oi.name_cn or oi.name_en or oi.id,
+                    "type": ot_name, "description": oi.description or "",
+                    "confidence": oi.confidence or 1.0, "version": oi.version or "v0.1",
+                },
+            })
+
         return {
-            "nodes": nodes,
-            "edges": edges,
-            "neo4j_available": False,
-            "fallback": "sqlite",
+            "nodes": nodes, "edges": edges,
+            "neo4j_available": False, "fallback": "sqlite",
         }
     finally:
         db.close()

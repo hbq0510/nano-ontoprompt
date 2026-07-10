@@ -24,6 +24,7 @@ from app.routers.v2 import curated as curated_v2
 from app.routers.v2 import mappings as mappings_v2
 from app.routers.v2 import incremental as incremental_v2
 from app.routers.v2 import logic_actions as logic_actions_v2
+from app.routers.v2 import object_types as object_types_v2
 from app.routers import skills
 from app.routers import intel_demo
 from app.routers import templates
@@ -40,6 +41,7 @@ def _seed_db():
         from app.models.v2 import dataset as v2_dataset, pipeline as v2_pipeline, connection as v2_connection  # noqa: F401
         from app.models.v2.logic import OntologyLogicRule, OntologyStateMachine  # noqa: F401
         from app.models.v2.action import OntologyActionType, OntologyActionRun  # noqa: F401
+        from app.models.v2.object_type import ObjectType, ObjectInstance, Interface, LinkType, Link  # noqa: F401
         from app.models.skill import Skill, SkillTrigger  # noqa: F401
         from app.models.intel_snapshot import IntelSnapshot  # noqa: F401
         Base.metadata.create_all(bind=engine)
@@ -60,6 +62,16 @@ def _seed_db():
                 "ALTER TABLE logic_rules ADD COLUMN status VARCHAR(20) DEFAULT 'draft'",
                 "ALTER TABLE actions ADD COLUMN enabled BOOLEAN DEFAULT 1",
                 "ALTER TABLE actions ADD COLUMN status VARCHAR(20) DEFAULT 'draft'",
+                # Phase 1 结构化提取: Action / LogicRule / Entity 新增字段
+                "ALTER TABLE entities ADD COLUMN property_schema JSON DEFAULT '{}'",
+                "ALTER TABLE actions ADD COLUMN submission_criteria JSON DEFAULT '[]'",
+                "ALTER TABLE actions ADD COLUMN target_entity_type VARCHAR(200)",
+                "ALTER TABLE actions ADD COLUMN needs_review BOOLEAN DEFAULT false",
+                "ALTER TABLE logic_rules ADD COLUMN conditions JSON DEFAULT '[]'",
+                "ALTER TABLE logic_rules ADD COLUMN needs_review BOOLEAN DEFAULT false",
+                # Phase 2: 新 object_types 体系外键
+                "ALTER TABLE actions ADD COLUMN target_object_type_id VARCHAR",
+                "ALTER TABLE logic_rules ADD COLUMN linked_object_type_ids JSON DEFAULT '[]'",
                 "ALTER TABLE extraction_tasks ADD COLUMN raw_output JSON",
                 "ALTER TABLE intel_snapshots ADD COLUMN IF NOT EXISTS created_entity_ids JSON DEFAULT '[]'",
                 "ALTER TABLE intel_snapshots ADD COLUMN IF NOT EXISTS created_relation_ids JSON DEFAULT '[]'",
@@ -163,6 +175,7 @@ app.include_router(curated_v2.router, prefix="/api/v2/curated", tags=["v2-curate
 app.include_router(mappings_v2.router, prefix="/api/v2/ontologies", tags=["v2-mappings"])
 app.include_router(incremental_v2.router, prefix="/api/v2/incremental", tags=["v2-incremental"])
 app.include_router(logic_actions_v2.router, prefix="/api/v2/ontologies", tags=["v2-logic-actions"])
+app.include_router(object_types_v2.router, prefix="/api/v2/ontologies", tags=["v2-object-types"])
 
 def get_db():
     db = SessionLocal()

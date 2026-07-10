@@ -8,6 +8,7 @@ class EntityCreate(BaseModel):
     type: Optional[str] = None
     description: Optional[str] = None
     properties: Dict[str, Any] = {}
+    property_schema: Dict[str, Any] = {}
     confidence: Optional[float] = None
 
 class EntityUpdate(BaseModel):
@@ -16,6 +17,7 @@ class EntityUpdate(BaseModel):
     type: Optional[str] = None
     description: Optional[str] = None
     properties: Optional[Dict[str, Any]] = None
+    property_schema: Optional[Dict[str, Any]] = None
     confidence: Optional[float] = None
 
 class EntityOut(BaseModel):
@@ -26,6 +28,7 @@ class EntityOut(BaseModel):
     type: Optional[str] = None
     description: Optional[str] = None
     properties: Dict[str, Any] = {}
+    property_schema: Dict[str, Any] = {}
     confidence: float = 1.0
     version: str = "v0.1"
     created_at: datetime

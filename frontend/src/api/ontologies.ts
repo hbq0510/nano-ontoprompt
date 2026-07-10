@@ -1,5 +1,5 @@
-import { apiClient } from './client'
-import type { OntologyListItem, OntologyDetail, Entity, LogicRule, Action, UploadedFile, Prompt, ModelConfig, EntityTemplate } from '@/types/ontology'
+import { apiClient, apiClientV2 } from './client'
+import type { OntologyListItem, OntologyDetail, Entity, LogicRule, Action, UploadedFile, Prompt, ModelConfig, EntityTemplate, ObjectType, ObjectInstance, OntologyInterface, LinkTypeItem, LinkItem } from '@/types/ontology'
 
 export const ontologyApi = {
   list: (params?: { name?: string; page?: number; page_size?: number }) =>
@@ -54,6 +54,20 @@ export const ontologyApi = {
 
   // Export
   exportUrl: (oid: string, format: string) => `/api/v1/ontologies/${oid}/export?format=${format}`,
+
+  // Phase 2: ObjectType / ObjectInstance / Interface / LinkType / Link
+  listObjectTypes: (oid: string) => apiClientV2.get<ObjectType[]>(`/ontologies/${oid}/object-types`),
+  createObjectType: (oid: string, body: Partial<ObjectType>) => apiClientV2.post<ObjectType>(`/ontologies/${oid}/object-types`, body),
+  updateObjectType: (oid: string, tid: string, body: Partial<ObjectType>) => apiClientV2.put<ObjectType>(`/ontologies/${oid}/object-types/${tid}`, body),
+  deleteObjectType: (oid: string, tid: string) => apiClientV2.delete(`/ontologies/${oid}/object-types/${tid}`),
+  listInstances: (oid: string, objectTypeId?: string) =>
+    apiClientV2.get<ObjectInstance[]>(`/ontologies/${oid}/object-instances${objectTypeId ? `?object_type_id=${objectTypeId}` : ''}`),
+  createInstance: (oid: string, body: Partial<ObjectInstance>) => apiClientV2.post<ObjectInstance>(`/ontologies/${oid}/object-instances`, body),
+  updateInstance: (oid: string, iid: string, body: Partial<ObjectInstance>) => apiClientV2.put<ObjectInstance>(`/ontologies/${oid}/object-instances/${iid}`, body),
+  deleteInstance: (oid: string, iid: string) => apiClientV2.delete(`/ontologies/${oid}/object-instances/${iid}`),
+  listInterfaces: (oid: string) => apiClientV2.get<OntologyInterface[]>(`/ontologies/${oid}/interfaces`),
+  listLinkTypes: (oid: string) => apiClientV2.get<LinkTypeItem[]>(`/ontologies/${oid}/link-types`),
+  listLinks: (oid: string) => apiClientV2.get<LinkItem[]>(`/ontologies/${oid}/links`),
 }
 
 export const promptApi = {

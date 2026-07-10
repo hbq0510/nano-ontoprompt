@@ -28,6 +28,7 @@ export interface Entity {
   type?: string
   description?: string
   properties: Record<string, unknown>
+  property_schema: Record<string, { type: string; unit?: string }>
   confidence: number
   version: string
   created_at: string
@@ -46,6 +47,8 @@ export interface LogicRule {
   enabled?: boolean
   status?: string
   linked_entities: string[]
+  conditions?: Array<{ field: string; op: string; value: unknown }>
+  needs_review?: boolean
   created_at: string
   updated_at: string
 }
@@ -60,6 +63,9 @@ export interface Action {
   function_code?: string
   linked_entities: string[]
   linked_logic_ids: string[]
+  submission_criteria?: Array<{ field: string; op: string; value: unknown }>
+  target_entity_type?: string
+  needs_review?: boolean
   confidence: number
   version: string
   created_at: string
@@ -99,7 +105,7 @@ export interface ModelConfig {
   updated_at: string
 }
 
-export const DOMAINS = ['供应链','采购','财务','医疗','金融','法律','教育','科技','制造','能源','其他']
+export const DOMAINS = ['军事','供应链','采购','财务','医疗','金融','法律','教育','科技','制造','能源','其他']
 
 // ── Entity Template ─────────────────────────────────────────────────
 export interface FieldDef {
@@ -119,4 +125,66 @@ export interface EntityTemplate {
   fields: FieldDef[]
   created_at: string
   updated_at: string
+}
+
+// ── Phase 2: ObjectType / ObjectInstance ────────────────────────────────
+export interface ObjectType {
+  id: string
+  ontology_id: string
+  name_cn: string
+  name_en?: string
+  description?: string
+  property_schema: Record<string, { type: string; unit?: string }>
+  interface_ids: string[]
+  confidence: number
+  version: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ObjectInstance {
+  id: string
+  ontology_id: string
+  object_type_id: string
+  name_cn: string
+  name_en?: string
+  description?: string
+  properties: Record<string, unknown>
+  confidence: number
+  version: string
+  created_at: string
+  updated_at: string
+}
+
+export interface OntologyInterface {
+  id: string
+  ontology_id: string
+  name_cn: string
+  name_en?: string
+  description?: string
+  shared_properties: Array<{ name: string; type: string; description?: string }>
+  created_at: string
+  updated_at: string
+}
+
+export interface LinkTypeItem {
+  id: string
+  ontology_id: string
+  name_cn: string
+  name_en?: string
+  description?: string
+  source_object_type_id?: string
+  target_object_type_id?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface LinkItem {
+  id: string
+  ontology_id: string
+  link_type_id: string
+  source_instance_id: string
+  target_instance_id: string
+  confidence: number
+  created_at: string
 }
