@@ -27,6 +27,8 @@ from app.routers.v2 import logic_actions as logic_actions_v2
 from app.routers.v2 import object_types as object_types_v2
 from app.routers.v2 import object_rules as object_rules_v2
 from app.routers.v2 import object_actions as object_actions_v2
+from app.routers.v2 import database_explorer
+from app.routers.v2 import data_sources as data_sources_v2
 from app.routers import skills
 from app.routers import intel_demo
 from app.routers import templates
@@ -44,6 +46,7 @@ def _seed_db():
         from app.models.v2.logic import OntologyLogicRule, OntologyStateMachine  # noqa: F401
         from app.models.v2.action import OntologyActionType, OntologyActionRun  # noqa: F401
         from app.models.v2.object_type import ObjectType, ObjectInstance, Interface, LinkType, Link  # noqa: F401
+        from app.models.v2.data_source import DataSource  # noqa: F401
         from app.models.object_rule import ObjectRule  # noqa: F401
         from app.models.object_action import ObjectAction  # noqa: F401
         from app.models.skill import Skill, SkillTrigger  # noqa: F401
@@ -185,6 +188,8 @@ app.include_router(logic_actions_v2.router, prefix="/api/v2/ontologies", tags=["
 app.include_router(object_types_v2.router, prefix="/api/v2/ontologies", tags=["v2-object-types"])
 app.include_router(object_rules_v2.router, prefix="/api/v2/ontologies", tags=["v2-object-rules"])
 app.include_router(object_actions_v2.router, prefix="/api/v2/ontologies", tags=["v2-object-actions"])
+app.include_router(database_explorer.router, prefix="/api/v2", tags=["v2-database"])
+app.include_router(data_sources_v2.router, prefix="/api/v2/ontologies", tags=["v2-data-sources"])
 
 def get_db():
     db = SessionLocal()

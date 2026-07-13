@@ -8,6 +8,7 @@ import InfoTab from './tabs/InfoTab'
 import FilesTab from './tabs/FilesTab'
 import EntitiesTab from './tabs/EntitiesTab'
 import OntologySpaceTab from './tabs/OntologySpaceTab'
+import DatabaseTab from './tabs/DatabaseTab'
 import LogicTab from './tabs/LogicTab'
 import ActionsTab from './tabs/ActionsTab'
 import CuratedDatasetsTab from './tabs/CuratedDatasetsTab'
@@ -15,7 +16,7 @@ import TemplatesTab from './tabs/TemplatesTab'
 
 const GraphTab = lazy(() => import('./tabs/GraphTabV2'))
 
-type Tab = 'info' | 'graph' | 'ontology-space' | 'entities' | 'logic' | 'actions' | 'files' | 'curated' | 'templates'
+type Tab = 'info' | 'graph' | 'ontology-space' | 'entities' | 'logic' | 'actions' | 'files' | 'database' | 'curated' | 'templates'
 
 class GraphErrorBoundary extends React.Component<
   { children: React.ReactNode; fallbackLabel?: string },
@@ -76,6 +77,7 @@ export default function OntologyDetailPage() {
     isPipelineMode
       ? { key: 'curated', label: 'Curated 数据集' }
       : { key: 'files', label: t('ontology.tabs.files') },
+    { key: 'database', label: '数据库' },
   ]
 
   return (
@@ -106,6 +108,7 @@ export default function OntologyDetailPage() {
       <div>
         {activeTab === 'info' && <InfoTab ontology={ontology} />}
         {activeTab === 'files' && <FilesTab ontologyId={id!} />}
+        {activeTab === 'database' && <DatabaseTab ontologyId={id!} />}
         {activeTab === 'curated' && <CuratedDatasetsTab ontologyId={id!} />}
         {activeTab === 'graph' && (
           <GraphErrorBoundary fallbackLabel="知识图谱渲染失败">

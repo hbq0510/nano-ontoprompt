@@ -91,6 +91,9 @@ export const ontologyApi = {
   deleteLink: (oid: string, lid: string) => apiClientV2.delete(`/ontologies/${oid}/links/${lid}`),
   triggerRules: (oid: string, instId: string) => apiClientV2.post(`/ontologies/${oid}/instances/${instId}/trigger-rules`),
   confirmLinks: (oid: string, links: any[]) => apiClientV2.post(`/ontologies/${oid}/confirm-links`, { links }),
+  listDataSources: (oid: string) => apiClientV2.get(`/ontologies/${oid}/data-sources`),
+  createDataSource: (oid: string, body: any) => apiClientV2.post(`/ontologies/${oid}/data-sources`, body),
+  deleteDataSource: (oid: string, sid: string) => apiClientV2.delete(`/ontologies/${oid}/data-sources/${sid}`),
 }
 
 export const promptApi = {
