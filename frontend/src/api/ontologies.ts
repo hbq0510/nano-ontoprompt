@@ -65,9 +65,32 @@ export const ontologyApi = {
   createInstance: (oid: string, body: Partial<ObjectInstance>) => apiClientV2.post<ObjectInstance>(`/ontologies/${oid}/object-instances`, body),
   updateInstance: (oid: string, iid: string, body: Partial<ObjectInstance>) => apiClientV2.put<ObjectInstance>(`/ontologies/${oid}/object-instances/${iid}`, body),
   deleteInstance: (oid: string, iid: string) => apiClientV2.delete(`/ontologies/${oid}/object-instances/${iid}`),
+
+  // Object Rules
+  listRules: (oid: string, params?: { object_type_id?: string; object_instance_id?: string }) =>
+    apiClientV2.get<{data: any[]}>(`/ontologies/${oid}/rules`, params),
+  createRule: (oid: string, body: any) => apiClientV2.post(`/ontologies/${oid}/rules`, body),
+  updateRule: (oid: string, rid: string, body: any) => apiClientV2.put(`/ontologies/${oid}/rules/${rid}`, body),
+  deleteRule: (oid: string, rid: string) => apiClientV2.delete(`/ontologies/${oid}/rules/${rid}`),
+
+  // Object Actions (Phase 2)
+  listActionsV2: (oid: string, params?: { object_type_id?: string; object_instance_id?: string; object_rule_id?: string }) =>
+    apiClientV2.get<{data: any[]}>(`/ontologies/${oid}/actions-v2`, params),
+  createActionV2: (oid: string, body: any) => apiClientV2.post(`/ontologies/${oid}/actions-v2`, body),
+  updateActionV2: (oid: string, aid: string, body: any) => apiClientV2.put(`/ontologies/${oid}/actions-v2/${aid}`, body),
+  deleteActionV2: (oid: string, aid: string) => apiClientV2.delete(`/ontologies/${oid}/actions-v2/${aid}`),
   listInterfaces: (oid: string) => apiClientV2.get<OntologyInterface[]>(`/ontologies/${oid}/interfaces`),
+  createInterface: (oid: string, body: any) => apiClientV2.post(`/ontologies/${oid}/interfaces`, body),
+  updateInterface: (oid: string, iid: string, body: any) => apiClientV2.put(`/ontologies/${oid}/interfaces/${iid}`, body),
+  deleteInterface: (oid: string, iid: string) => apiClientV2.delete(`/ontologies/${oid}/interfaces/${iid}`),
   listLinkTypes: (oid: string) => apiClientV2.get<LinkTypeItem[]>(`/ontologies/${oid}/link-types`),
+  createLinkType: (oid: string, body: any) => apiClientV2.post(`/ontologies/${oid}/link-types`, body),
+  updateLinkType: (oid: string, lid: string, body: any) => apiClientV2.put(`/ontologies/${oid}/link-types/${lid}`, body),
+  deleteLinkType: (oid: string, lid: string) => apiClientV2.delete(`/ontologies/${oid}/link-types/${lid}`),
   listLinks: (oid: string) => apiClientV2.get<LinkItem[]>(`/ontologies/${oid}/links`),
+  deleteLink: (oid: string, lid: string) => apiClientV2.delete(`/ontologies/${oid}/links/${lid}`),
+  triggerRules: (oid: string, instId: string) => apiClientV2.post(`/ontologies/${oid}/instances/${instId}/trigger-rules`),
+  confirmLinks: (oid: string, links: any[]) => apiClientV2.post(`/ontologies/${oid}/confirm-links`, { links }),
 }
 
 export const promptApi = {

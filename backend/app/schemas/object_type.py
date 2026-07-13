@@ -11,6 +11,7 @@ class ObjectTypeCreate(BaseModel):
     description: Optional[str] = None
     property_schema: Dict[str, Any] = {}
     interface_ids: List[str] = []
+    parent_id: Optional[str] = None
     confidence: Optional[float] = None
 
 class ObjectTypeUpdate(BaseModel):
@@ -19,6 +20,7 @@ class ObjectTypeUpdate(BaseModel):
     description: Optional[str] = None
     property_schema: Optional[Dict[str, Any]] = None
     interface_ids: Optional[List[str]] = None
+    parent_id: Optional[str] = None
     confidence: Optional[float] = None
 
 class ObjectTypeOut(BaseModel):
@@ -29,6 +31,7 @@ class ObjectTypeOut(BaseModel):
     description: Optional[str]
     property_schema: Dict[str, Any] = {}
     interface_ids: List[str] = []
+    parent_id: Optional[str] = None
     confidence: float
     version: str
     created_at: datetime
@@ -97,6 +100,7 @@ class LinkTypeCreate(BaseModel):
     name_cn: str
     name_en: Optional[str] = None
     description: Optional[str] = None
+    property_schema: Dict[str, Any] = {}
     source_object_type_id: Optional[str] = None
     target_object_type_id: Optional[str] = None
 
@@ -104,6 +108,7 @@ class LinkTypeUpdate(BaseModel):
     name_cn: Optional[str] = None
     name_en: Optional[str] = None
     description: Optional[str] = None
+    property_schema: Optional[Dict[str, Any]] = None
     source_object_type_id: Optional[str] = None
     target_object_type_id: Optional[str] = None
 
@@ -113,6 +118,7 @@ class LinkTypeOut(BaseModel):
     name_cn: str
     name_en: Optional[str]
     description: Optional[str]
+    property_schema: Dict[str, Any] = {}
     source_object_type_id: Optional[str]
     target_object_type_id: Optional[str]
     created_at: datetime
@@ -125,6 +131,7 @@ class LinkCreate(BaseModel):
     link_type_id: str
     source_instance_id: str
     target_instance_id: str
+    properties: Dict[str, Any] = {}
     confidence: Optional[float] = None
 
 class LinkOut(BaseModel):
@@ -133,6 +140,7 @@ class LinkOut(BaseModel):
     link_type_id: str
     source_instance_id: str
     target_instance_id: str
+    properties: Dict[str, Any] = {}
     confidence: float
     created_at: datetime
     model_config = {"from_attributes": True}

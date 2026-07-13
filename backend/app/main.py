@@ -25,6 +25,8 @@ from app.routers.v2 import mappings as mappings_v2
 from app.routers.v2 import incremental as incremental_v2
 from app.routers.v2 import logic_actions as logic_actions_v2
 from app.routers.v2 import object_types as object_types_v2
+from app.routers.v2 import object_rules as object_rules_v2
+from app.routers.v2 import object_actions as object_actions_v2
 from app.routers import skills
 from app.routers import intel_demo
 from app.routers import templates
@@ -42,6 +44,8 @@ def _seed_db():
         from app.models.v2.logic import OntologyLogicRule, OntologyStateMachine  # noqa: F401
         from app.models.v2.action import OntologyActionType, OntologyActionRun  # noqa: F401
         from app.models.v2.object_type import ObjectType, ObjectInstance, Interface, LinkType, Link  # noqa: F401
+        from app.models.object_rule import ObjectRule  # noqa: F401
+        from app.models.object_action import ObjectAction  # noqa: F401
         from app.models.skill import Skill, SkillTrigger  # noqa: F401
         from app.models.intel_snapshot import IntelSnapshot  # noqa: F401
         Base.metadata.create_all(bind=engine)
@@ -72,6 +76,9 @@ def _seed_db():
                 # Phase 2: 新 object_types 体系外键
                 "ALTER TABLE actions ADD COLUMN target_object_type_id VARCHAR",
                 "ALTER TABLE logic_rules ADD COLUMN linked_object_type_ids JSON DEFAULT '[]'",
+                "ALTER TABLE object_types ADD COLUMN parent_id VARCHAR(200)",
+                "ALTER TABLE link_types ADD COLUMN property_schema JSON DEFAULT '{}'",
+                "ALTER TABLE links ADD COLUMN properties JSON DEFAULT '{}'",
                 "ALTER TABLE extraction_tasks ADD COLUMN raw_output JSON",
                 "ALTER TABLE intel_snapshots ADD COLUMN IF NOT EXISTS created_entity_ids JSON DEFAULT '[]'",
                 "ALTER TABLE intel_snapshots ADD COLUMN IF NOT EXISTS created_relation_ids JSON DEFAULT '[]'",
@@ -176,6 +183,8 @@ app.include_router(mappings_v2.router, prefix="/api/v2/ontologies", tags=["v2-ma
 app.include_router(incremental_v2.router, prefix="/api/v2/incremental", tags=["v2-incremental"])
 app.include_router(logic_actions_v2.router, prefix="/api/v2/ontologies", tags=["v2-logic-actions"])
 app.include_router(object_types_v2.router, prefix="/api/v2/ontologies", tags=["v2-object-types"])
+app.include_router(object_rules_v2.router, prefix="/api/v2/ontologies", tags=["v2-object-rules"])
+app.include_router(object_actions_v2.router, prefix="/api/v2/ontologies", tags=["v2-object-actions"])
 
 def get_db():
     db = SessionLocal()

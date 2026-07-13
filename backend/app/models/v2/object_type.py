@@ -31,6 +31,7 @@ class ObjectType(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     property_schema: Mapped[dict] = mapped_column(JSON, default=dict)
     interface_ids: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=list)
+    parent_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
     confidence: Mapped[float] = mapped_column(Float, default=1.0)
     version: Mapped[str] = mapped_column(String(20), default="v0.1")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
@@ -93,6 +94,7 @@ class LinkType(Base):
     name_cn: Mapped[str] = mapped_column(String(200), nullable=False)
     name_en: Mapped[str | None] = mapped_column(String(200), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    property_schema: Mapped[dict] = mapped_column(JSON, default=dict)
     # 软引用 object_types.id，不设 FK
     source_object_type_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
     target_object_type_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
@@ -115,5 +117,6 @@ class Link(Base):
     link_type_id: Mapped[str] = mapped_column(String(200), nullable=False)
     source_instance_id: Mapped[str] = mapped_column(String(200), nullable=False)
     target_instance_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    properties: Mapped[dict] = mapped_column(JSON, default=dict)
     confidence: Mapped[float] = mapped_column(Float, default=1.0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
