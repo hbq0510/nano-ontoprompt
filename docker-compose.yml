@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: ontoprompt
       POSTGRES_PASSWORD: ontoprompt
     ports: ["8432:5432"]
-    volumes: [pg_data:/var/lib/postgresql/data]
+    volumes: [./:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ontoprompt"]
       interval: 10s
@@ -52,8 +52,10 @@ services:
 
   chromadb:
     image: chromadb/chroma:0.5.20
+    #本地端口左边
     ports: ["18021:8000"]
     volumes: [chroma_data:/chroma/chroma]
+    #本地
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/api/v1/heartbeat || exit 1"]
       interval: 10s

@@ -13,10 +13,11 @@ import LogicTab from './tabs/LogicTab'
 import ActionsTab from './tabs/ActionsTab'
 import CuratedDatasetsTab from './tabs/CuratedDatasetsTab'
 import TemplatesTab from './tabs/TemplatesTab'
+import ScenarioListPage from '@/pages/simulation/ScenarioListPage'
 
 const GraphTab = lazy(() => import('./tabs/GraphTabV2'))
 
-type Tab = 'info' | 'graph' | 'ontology-space' | 'entities' | 'logic' | 'actions' | 'files' | 'database' | 'curated' | 'templates'
+type Tab = 'info' | 'graph' | 'ontology-space' | 'entities' | 'logic' | 'actions' | 'files' | 'database' | 'curated' | 'templates' | 'simulation'
 
 class GraphErrorBoundary extends React.Component<
   { children: React.ReactNode; fallbackLabel?: string },
@@ -78,6 +79,7 @@ export default function OntologyDetailPage() {
       ? { key: 'curated', label: 'Curated 数据集' }
       : { key: 'files', label: t('ontology.tabs.files') },
     { key: 'database', label: '数据库' },
+    { key: 'simulation', label: '任务中心' },
   ]
 
   return (
@@ -109,6 +111,7 @@ export default function OntologyDetailPage() {
         {activeTab === 'info' && <InfoTab ontology={ontology} />}
         {activeTab === 'files' && <FilesTab ontologyId={id!} />}
         {activeTab === 'database' && <DatabaseTab ontologyId={id!} />}
+        {activeTab === 'simulation' && <ScenarioListPage ontologyId={id!} />}
         {activeTab === 'curated' && <CuratedDatasetsTab ontologyId={id!} />}
         {activeTab === 'graph' && (
           <GraphErrorBoundary fallbackLabel="知识图谱渲染失败">

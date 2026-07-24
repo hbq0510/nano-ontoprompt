@@ -24,6 +24,7 @@ import ConnectionsTab from '@/pages/pipelines/connections/ConnectionsTab'
 import DatasetsTab from '@/pages/pipelines/datasets/DatasetsTab'
 import TransformsTab from '@/pages/pipelines/transforms/TransformsTab'
 import CuratedTab from '@/pages/pipelines/curated/CuratedTab'
+import SimulationRunPage from '@/pages/simulation/SimulationRunPage'
 
 const qc = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } }
@@ -64,6 +65,7 @@ export default function App() {
           <Route path="/skills" element={<ProtectedRoute><SkillsPage /></ProtectedRoute>} />
           <Route path="/models" element={<ProtectedRoute><ModelsPage /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
+          <Route path="/simulation/:scenarioId" element={<ProtectedRoute><SimulationRunPage /></ProtectedRoute>} />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>

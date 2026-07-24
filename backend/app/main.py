@@ -27,6 +27,10 @@ from app.routers.v2 import logic_actions as logic_actions_v2
 from app.routers.v2 import object_types as object_types_v2
 from app.routers.v2 import object_rules as object_rules_v2
 from app.routers.v2 import object_actions as object_actions_v2
+from app.routers.v2 import simulation as simulation_v2
+from app.routers.v2 import plans as plans_v2
+from app.routers.v2 import intelligence as intelligence_v2
+from app.routers.v2 import qa as qa_v2
 from app.routers.v2 import database_explorer
 from app.routers.v2 import data_sources as data_sources_v2
 from app.routers import skills
@@ -51,6 +55,9 @@ def _seed_db():
         from app.models.object_action import ObjectAction  # noqa: F401
         from app.models.skill import Skill, SkillTrigger  # noqa: F401
         from app.models.intel_snapshot import IntelSnapshot  # noqa: F401
+        from app.models.simulation import Scenario, ScenarioTick, ScenarioEvent  # noqa: F401
+        from app.models.plan import Plan, PlanRun  # noqa: F401
+        from app.models.intelligence import Intelligence  # noqa: F401
         Base.metadata.create_all(bind=engine)
 
         # SQLite column migrations — create_all skips existing tables
@@ -83,6 +90,7 @@ def _seed_db():
                 "ALTER TABLE link_types ADD COLUMN property_schema JSON DEFAULT '{}'",
                 "ALTER TABLE links ADD COLUMN properties JSON DEFAULT '{}'",
                 "ALTER TABLE extraction_tasks ADD COLUMN raw_output JSON",
+                "ALTER TABLE ontology_projects ADD COLUMN agent_webhook_url VARCHAR(500)",
                 "ALTER TABLE intel_snapshots ADD COLUMN IF NOT EXISTS created_entity_ids JSON DEFAULT '[]'",
                 "ALTER TABLE intel_snapshots ADD COLUMN IF NOT EXISTS created_relation_ids JSON DEFAULT '[]'",
                 "CREATE TABLE IF NOT EXISTS intel_snapshots ("
@@ -190,6 +198,10 @@ app.include_router(object_rules_v2.router, prefix="/api/v2/ontologies", tags=["v
 app.include_router(object_actions_v2.router, prefix="/api/v2/ontologies", tags=["v2-object-actions"])
 app.include_router(database_explorer.router, prefix="/api/v2", tags=["v2-database"])
 app.include_router(data_sources_v2.router, prefix="/api/v2/ontologies", tags=["v2-data-sources"])
+app.include_router(simulation_v2.router, prefix="/api/v2/ontologies", tags=["v2-simulation"])
+app.include_router(plans_v2.router, prefix="/api/v2", tags=["v2-plans"])
+app.include_router(intelligence_v2.router, prefix="/api/v2", tags=["v2-intelligence"])
+app.include_router(qa_v2.router, prefix="/api/v2", tags=["v2-qa"])
 
 def get_db():
     db = SessionLocal()
