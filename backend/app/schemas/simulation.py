@@ -12,6 +12,7 @@ class ScenarioCreate(BaseModel):
     description: Optional[str] = None
     participant_instance_ids: list[str] = []
     initial_state: list[dict] = []
+    design_params_map: dict = {}
     tick_interval_ms: int = 1000
     max_ticks: int = 100
     stop_condition: Optional[str] = "max_ticks"  # max_ticks | intercept_success | intercept_fail | target_lost
@@ -38,6 +39,7 @@ class ScenarioOut(BaseModel):
     description: Optional[str] = None
     participant_instance_ids: list = []
     initial_state: list = []
+    design_params_map: dict = {}
     tick_interval_ms: int = 1000
     max_ticks: int = 100
     current_tick: int = 0

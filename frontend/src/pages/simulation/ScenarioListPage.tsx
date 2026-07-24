@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Play, Pause, RotateCcw, Plus, Trash2, Clock, Eye, Users, Edit3, X, Save, Zap } from 'lucide-react'
 import simulationApi from '@/api/v2/simulation'
 import plansApi from '@/api/v2/plans'
@@ -19,8 +19,15 @@ const STATUS_LABELS: Record<string, { cn: string; color: string }> = {
 export default function ScenarioListPage({ ontologyId }: { ontologyId: string }) {
   const qc = useQueryClient()
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState<'scenarios' | 'plans'>('scenarios')
-  const [selectedScenario, setSelectedScenario] = useState<string | null>(null)
+  const [searchParams] = useSearchParams()
+  const [activeTab, setActiveTab] = useState<'scenarios' | 'plans'>(() => {
+    const view = new URLSearchParams(window.location.search).get('view')
+    if (view === 'plans') return 'plans'
+    return 'scenarios'
+  })
+  const [selectedScenario, setSelectedScenario] = useState<string | null>(() => {
+    return new URLSearchParams(window.location.search).get('scenarioId') || null
+  })
   const [showCreate, setShowCreate] = useState(false)
   const [editSid, setEditSid] = useState<string | null>(null)
   const [form, setForm] = useState({ name: '', description: '', max_ticks: 50, tick_interval_ms: 500, stop_condition: 'max_ticks', participant_instance_ids: [] as string[] })
@@ -202,9 +209,6 @@ export default function ScenarioListPage({ ontologyId }: { ontologyId: string })
                     {/* 方案按钮 */}
                     <button onClick={() => { setActiveTab('plans'); setSelectedScenario(s.id) }} title="方案管理"
                       className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded"><Zap size={16} /></button>
-                    {/* 查看按钮 — 所有状态都能查看 */}
-                    <button onClick={() => navigate(`/simulation/${s.id}?ontologyId=${ontologyId}`)} title="进入推演"
-                      className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"><Eye size={16} /></button>
 
                     {/* 控制按钮 */}
                     {(s.status === 'draft' || s.status === 'paused') && (

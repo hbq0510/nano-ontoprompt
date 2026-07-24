@@ -152,6 +152,46 @@ def infer_relations(entities: list, existing_relations: list, text: str,
 
 
 def _call_llm(provider: str, api_key: str, api_base: str | None, model: str, messages: list, json_mode: bool = True) -> str:
+    # Normalize provider
+    provider = (provider or "").lower().strip()
+    if provider not in ("anthropic", "openai", "compatible"):
+        provider = "openai"
+
+    if provider == "anthropic":
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        system_msg = ""
+        user_msgs = []
+        for m in messages:
+            if m.get("role") == "system":
+                system_msg = m.get("content", "")
+            elif m.get("role") == "user":
+                user_msgs.append(m)
+        # Build user content
+        user_content = user_msgs[-1]["content"] if user_msgs else ""
+        if json_mode and isinstance(user_content, str):
+            user_content = user_content + "\n\n请只输出 JSON，不要有任何其他文字。"
+        resp = client.messages.create(
+            model=model, max_tokens=32768,
+            system=system_msg,
+            messages=[{"role": "user", "content": user_content}],
+        )
+        return resp.content[0].text
+    else:
+        import openai
+        kwargs = {}
+        if api_key:
+            kwargs["api_key"] = api_key
+        if provider == "compatible":
+            kwargs["api_key"] = api_key or "dummy"
+        if api_base:
+            kwargs["base_url"] = api_base
+        client = openai.OpenAI(**kwargs)
+        create_kwargs: dict = {"model": model, "messages": messages, "timeout": 300, "max_tokens": 32768}
+        if json_mode:
+            create_kwargs["response_format"] = {"type": "json_object"}
+        resp = client.chat.completions.create(**create_kwargs)
+        return resp.choices[0].message.content or ""
     if provider == "anthropic":
         import anthropic
         client = anthropic.Anthropic(api_key=api_key)

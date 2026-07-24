@@ -23,6 +23,8 @@ export default function PlansPanel({ ontologyId, scenarioId, scenarioName }: { o
   const [genCount, setGenCount] = useState(3)
   const [genStrategy, setGenStrategy] = useState('diverse')
 
+  const [runningPlanId, setRunningPlanId] = useState<string | null>(null)
+
   const { data: plans = [] } = useQuery({
     queryKey: ['plans', scenarioId],
     queryFn: () => plansApi.list(scenarioId) as Promise<PlanData[]>,
@@ -37,8 +39,23 @@ export default function PlansPanel({ ontologyId, scenarioId, scenarioName }: { o
 
   const deleteMut = useMutation({ mutationFn: (id: string) => plansApi.delete(scenarioId, id), onSuccess: () => qc.invalidateQueries({ queryKey: ['plans', scenarioId] }) })
   const runMut = useMutation({
-    mutationFn: (id: string) => plansApi.run(scenarioId, id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['plans', scenarioId] }); qc.invalidateQueries({ queryKey: ['plans-compare', scenarioId] }) },
+    mutationFn: async (id: string) => {
+      setRunningPlanId(id)
+      const result = await plansApi.run(scenarioId, id)
+      return result
+    },
+    onSuccess: (data, id) => {
+      qc.invalidateQueries({ queryKey: ['plans', scenarioId] })
+      qc.invalidateQueries({ queryKey: ['plans-compare', scenarioId] })
+      // 强制清空仿真页面缓存
+      qc.removeQueries({ queryKey: ['timeline', ontologyId, scenarioId] })
+      qc.removeQueries({ queryKey: ['sim-events', ontologyId, scenarioId] })
+      qc.removeQueries({ queryKey: ['scenario', ontologyId, scenarioId] })
+      setRunningPlanId(null)
+      // 自动跳转到仿真页面
+      navigate(`/simulation/${scenarioId}?ontologyId=${ontologyId}&planId=${id}`)
+    },
+    onError: () => setRunningPlanId(null),
   })
   const saveTplMut = useMutation({ mutationFn: (id: string) => plansApi.saveTemplate(scenarioId, id), onSuccess: () => qc.invalidateQueries({ queryKey: ['plans', scenarioId] }) })
 
@@ -56,21 +73,13 @@ export default function PlansPanel({ ontologyId, scenarioId, scenarioName }: { o
 
   return (
     <div className="space-y-4">
-      {/* 顶部操作栏 */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold">任务中心 · {scenarioName}</h2>
           <p className="text-sm text-gray-500">智能方案生成 · 仿真评估 · 对比择优</p>
         </div>
-        <div className="flex gap-2">
-          <button onClick={() => navigate(`/simulation/${scenarioId}?ontologyId=${ontologyId}`)}
-            className="inline-flex items-center gap-1 px-3 py-1.5 border text-sm rounded-lg hover:bg-gray-100">
-            <Eye size={14} /> 仿真视图
-          </button>
-        </div>
       </div>
 
-      {/* LLM 方案生成 */}
       <div className="border rounded-lg p-4 bg-gradient-to-r from-indigo-50 to-blue-50">
         <div className="flex items-center gap-2 mb-3">
           <Sparkles size={18} className="text-indigo-500" />
@@ -94,10 +103,8 @@ export default function PlansPanel({ ontologyId, scenarioId, scenarioName }: { o
         </div>
       </div>
 
-      {/* 情报输入区 */}
       <IntelSection scenarioId={scenarioId} />
 
-      {/* 方案对比 (雷达图效果的简化版) */}
       {evaluated.length >= 2 && (
         <div className="border rounded-lg p-4 bg-amber-50/50">
           <h3 className="font-semibold text-sm mb-2 flex items-center gap-1"><Trophy size={16} className="text-amber-500" /> 方案对比</h3>
@@ -120,7 +127,7 @@ export default function PlansPanel({ ontologyId, scenarioId, scenarioName }: { o
                   return (
                     <tr key={p.id} className={`border-b ${isBest ? 'bg-amber-100/50 font-medium' : ''}`}>
                       <td className="py-1.5">{isBest && '🏆 '}{p.name}</td>
-                      <td className="py-1.5">{(s.kill_probability || 0) * 100}%</td>
+                      <td className="py-1.5">{Math.round((s.kill_probability || 0) * 100)}%</td>
                       <td className="py-1.5">{s.ammo_used || 0}枚</td>
                       <td className="py-1.5">{s.time_ticks || 0}tick</td>
                       <td className="py-1.5">{s.efficiency || 0}</td>
@@ -136,7 +143,6 @@ export default function PlansPanel({ ontologyId, scenarioId, scenarioName }: { o
         </div>
       )}
 
-      {/* 方案列表 */}
       {plans.length === 0 ? (
         <div className="text-center text-gray-400 py-8">
           <Lightbulb size={32} className="mx-auto mb-2 opacity-30" />
@@ -167,10 +173,21 @@ export default function PlansPanel({ ontologyId, scenarioId, scenarioName }: { o
                     )}
                     {p.status === 'evaluated' && (
                       <>
-                        <button onClick={() => { runMut.mutate(p.id); qc.invalidateQueries({ queryKey: ['intel-plans', scenarioId] }) }}
-                          className="p-1.5 text-orange-600 hover:bg-orange-50 rounded" title="重新执行"><RotateCcw size={14} /></button>
-                        <button onClick={() => navigate(`/simulation/${scenarioId}?ontologyId=${ontologyId}&planId=${p.id}`)}
-                          className="p-1.5 text-purple-600 hover:bg-purple-50 rounded" title="查看推演"><MonitorPlay size={14} /></button>
+                        <button onClick={() => runMut.mutate(p.id)}
+                          disabled={runningPlanId === p.id}
+                          className={`p-1.5 rounded ${runningPlanId === p.id ? 'text-gray-400' : 'text-orange-600 hover:bg-orange-50'}`} title="重新执行">
+                          {runningPlanId === p.id ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
+                        </button>
+                        <button onClick={() => {
+                          qc.invalidateQueries({ queryKey: ['timeline', ontologyId, scenarioId] })
+                          qc.invalidateQueries({ queryKey: ['sim-events', ontologyId, scenarioId] })
+                          qc.invalidateQueries({ queryKey: ['scenario', ontologyId, scenarioId] })
+                          navigate(`/simulation/${scenarioId}?ontologyId=${ontologyId}&planId=${p.id}`)
+                        }}
+                          className="p-1.5 text-purple-600 hover:bg-purple-50 rounded"
+                          title="查看推演">
+                          <MonitorPlay size={14} />
+                        </button>
                       </>
                     )}
                     <button onClick={() => { if (confirm('确定删除?')) deleteMut.mutate(p.id) }}
@@ -216,7 +233,6 @@ export default function PlansPanel({ ontologyId, scenarioId, scenarioName }: { o
         </div>
       )}
 
-      {/* 模板库入口 */}
       <div className="border-t pt-3">
         <button onClick={() => {/* TODO: template library page */}} className="text-sm text-gray-500 hover:text-indigo-600 inline-flex items-center gap-1">
           <BookOpen size={14} /> 方案模板库 (经验库)
@@ -233,11 +249,12 @@ function IntelSection({ scenarioId }: { scenarioId: string }) {
   const [parsing, setParsing] = useState(false)
   const qc = useQueryClient()
 
-  const { data: intelList = [] } = useQuery({
+  const { data: intelListRaw } = useQuery({
     queryKey: ['intel-plans', scenarioId],
     queryFn: () => plansApi.listIntel(scenarioId) as Promise<any[]>,
     enabled: !!scenarioId, refetchInterval: 5000,
   })
+  const intelList = intelListRaw || []
 
   const pending = intelList.filter((i: any) => i.status === 'pending')
   const ready = intelList.filter((i: any) => i.status === 'ready')

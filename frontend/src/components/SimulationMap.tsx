@@ -37,8 +37,8 @@ function getTypeStyle(name: string) {
 function makeIcon(name: string) {
   const c = getTypeStyle(name)
   return L.divIcon({
-    html: `<div style="width:12px;height:12px;border-radius:50%;background:${c.fill};border:2px solid ${c.stroke};box-shadow:0 0 6px ${c.fill}88"></div>`,
-    className: '', iconSize: [12, 12], iconAnchor: [6, 6],
+    html: `<div style="width:16px;height:16px;border-radius:50%;background:${c.fill};border:3px solid white;box-shadow:0 0 10px ${c.fill}cc, 0 2px 6px rgba(0,0,0,0.3)"></div>`,
+    className: '', iconSize: [16, 16], iconAnchor: [8, 8],
   })
 }
 
@@ -47,6 +47,14 @@ const LINK_COLORS: Record<string, { color: string; dash: string }> = {
   Detect: { color: '#3b82f6', dash: '10,6' },
   intercept: { color: '#dc2626', dash: '' },
   Intercept: { color: '#dc2626', dash: '' },
+}
+
+// 计算平行偏移 — 多发方案画多条平行线区分
+function parallelOffset(lat1: number, lon1: number, lat2: number, lon2: number, offsetDeg: number): [number, number] {
+  const dlat = lat2 - lat1, dlon = lon2 - lon1
+  const len = Math.sqrt(dlat * dlat + dlon * dlon) || 1
+  // 垂直方向 (归一化 × 偏移量)
+  return [-dlon / len * offsetDeg, dlat / len * offsetDeg]
 }
 
 // Auto-fit map bounds
@@ -81,6 +89,7 @@ export interface MapLink {
   targetLat: number
   targetLon: number
   linkTypeId?: string
+  count?: number  // 弹药数量，用于多发方案显示多条平行线
 }
 
 export default function SimulationMap({
@@ -103,11 +112,15 @@ export default function SimulationMap({
   }), [links])
   const interceptLinks = useMemo(() => links.filter(l => {
     const t = (l.linkTypeId || '').toLowerCase()
-    return t.includes('intercept') || t.includes('拦截')
+    return t.includes('intercept') || t.includes('拦截') || t.includes('fire') || t.includes('火力')
+  }), [links])
+  const threatLinks = useMemo(() => links.filter(l => {
+    const t = (l.linkTypeId || '').toLowerCase()
+    return t.includes('threat') || t.includes('威胁')
   }), [links])
   const otherLinks = useMemo(() => links.filter(l => {
     const t = (l.linkTypeId || '').toLowerCase()
-    return !t.includes('detect') && !t.includes('探测') && !t.includes('intercept') && !t.includes('拦截')
+    return !t.includes('detect') && !t.includes('探测') && !t.includes('intercept') && !t.includes('拦截') && !t.includes('fire') && !t.includes('火力') && !t.includes('threat') && !t.includes('威胁')
   }), [links])
 
   return (
@@ -129,25 +142,49 @@ export default function SimulationMap({
           <Polyline positions={trail} color="#9ca3af" weight={1.5} dashArray="4,4" />
         )}
 
-        {/* Detection links */}
+        {/* Detection links - 亮蓝色粗线 */}
         {detectLinks.map((l, i) => (
           <Polyline
             key={`detect-${i}`}
             positions={[[l.sourceLat, l.sourceLon], [l.targetLat, l.targetLon]]}
-            color="#3b82f6" weight={2} dashArray="8,6" opacity={0.8}
+            color="#3b82f6" weight={4} dashArray="10,6" opacity={0.9}
           >
             <Tooltip sticky>{l.sourceName} 探测 {l.targetName}</Tooltip>
           </Polyline>
         ))}
 
-        {/* Interception links */}
-        {interceptLinks.map((l, i) => (
+        {/* Interception links - 鲜红色粗线，多发方案画多条平行线 */}
+        {interceptLinks.flatMap((l, i) => {
+          const count = l.count || 1
+          const offsetDeg = 0.008 // ~900m 平行间距
+          // 计算每条平行线的偏移量
+          const lines: JSX.Element[] = []
+          for (let j = 0; j < count; j++) {
+            const shift = (j - (count - 1) / 2) * offsetDeg // 居中分布
+            const [pdlat, pdlon] = parallelOffset(l.sourceLat, l.sourceLon, l.targetLat, l.targetLon, shift)
+            lines.push(
+              <Polyline
+                key={`intercept-${i}-${j}`}
+                positions={[[l.sourceLat + pdlat, l.sourceLon + pdlon], [l.targetLat + pdlat, l.targetLon + pdlon]]}
+                color="#ef4444" weight={count > 1 ? 3 : 4} opacity={1}
+              >
+                {j === 0 && (
+                  <Tooltip sticky>{l.sourceName} 拦截 {l.targetName} {count > 1 ? `×${count}发` : ''}</Tooltip>
+                )}
+              </Polyline>
+            )
+          }
+          return lines
+        })}
+
+        {/* Threat links - 橙色威胁线 */}
+        {threatLinks.map((l, i) => (
           <Polyline
-            key={`intercept-${i}`}
+            key={`threat-${i}`}
             positions={[[l.sourceLat, l.sourceLon], [l.targetLat, l.targetLon]]}
-            color="#dc2626" weight={2.5} opacity={0.9}
+            color="#f97316" weight={3} dashArray="8,4" opacity={0.85}
           >
-            <Tooltip sticky>{l.sourceName} 拦截 {l.targetName}</Tooltip>
+            <Tooltip sticky>{l.sourceName} 威胁 {l.targetName}</Tooltip>
           </Polyline>
         ))}
 

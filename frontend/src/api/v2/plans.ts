@@ -85,6 +85,13 @@ const plansApi = {
 
   applyIntel: (scenarioId: string, intelId: string) =>
     apiClientV2.post<any>(`/scenarios/${scenarioId}/intelligence/${intelId}/apply`).then(r => r?.data ?? r),
+
+  // ── QA ──
+  ask: (scenarioId: string, question: string, planId?: string, history?: { role: string; content: string }[]) =>
+    apiClientV2.post<any>(`/scenarios/${scenarioId}/qa`, {
+      question, plan_id: planId,
+      conversation_history: history || [],
+    }).then(r => r?.data ?? r),
 }
 
 export default plansApi

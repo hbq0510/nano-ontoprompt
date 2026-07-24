@@ -4,7 +4,7 @@ import path from 'path'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, __dirname, '')
-  const backendUrl = env.VITE_BACKEND_URL || 'http://backend:8000'
+  const backendUrl = env.VITE_BACKEND_URL || 'http://127.0.0.1:8765'
   return {
     plugins: [react()],
     resolve: { alias: { '@': path.resolve(__dirname, './src') } },

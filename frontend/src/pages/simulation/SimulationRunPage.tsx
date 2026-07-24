@@ -6,6 +6,8 @@ import simulationApi from '@/api/v2/simulation'
 import plansApi from '@/api/v2/plans'
 import { ontologyApi } from '@/api/ontologies'
 import SimulationMap, { type MapEntity, type MapLink } from '@/components/SimulationMap'
+import ScenarioGraph from '@/components/ScenarioGraph'
+import ScenarioChat from '@/components/ScenarioChat'
 import type { Scenario } from '@/api/v2/simulation'
 import type { ObjectInstance } from '@/types/ontology'
 
@@ -14,8 +16,18 @@ const STOP_LABELS: Record<string, string> = {
   intercept_fail: '拦截失败', target_lost: '目标丢失',
 }
 
+function getEntityIcon(name: string): string {
+  if (name.includes('DF-') || name.includes('CJ-')) return '🚀'
+  if (name.includes('Decoy')) return '🎯'
+  if (name.includes('Radar')) return '📡'
+  if (name.includes('HongQi') || name.includes('CIWS') || name.includes('Interceptor')) return '🛡️'
+  if (name.includes('HVA')) return '🏛️'
+  return '🛡️'
+}
+
 function isKeyEvent(e: any): boolean {
   if (e.event_type === 'stop_condition' || e.event_type === 'action_exec') return true
+  if (e.event_type === 'decision' || e.event_type === 'intelligence' || e.event_type === 'link_created') return true
   if (e.event_type === 'state_change') return false
   if (e.event_type === 'rule_check') {
     const d = (e.description || '')
@@ -35,7 +47,9 @@ export default function SimulationRunPage() {
   const [autoRun, setAutoRun] = useState(false)
   const [error, setError] = useState('')
   const [expandedTick, setExpandedTick] = useState<number | null>(null)
-  const [viewTick, setViewTick] = useState<number | null>(null) // 当前查看的 tick（用于时间线拖拽回看）
+  const [viewTick, setViewTick] = useState<number | null>(null)
+  const [autoPlay, setAutoPlay] = useState(false)
+  const [reRunning, setReRunning] = useState(false)
 
   const { data: scenario } = useQuery({
     queryKey: ['scenario', ontologyId, scenarioId],
@@ -47,15 +61,22 @@ export default function SimulationRunPage() {
     queryFn: () => ontologyApi.listInstances(ontologyId) as Promise<ObjectInstance[]>,
     enabled: !!ontologyId,
   })
-  const { data: events = [] } = useQuery({
-    queryKey: ['sim-events', ontologyId, scenarioId],
+  const { data: linkTypes = [] } = useQuery({
+    queryKey: ['link-types', ontologyId],
+    queryFn: () => ontologyApi.listLinkTypes(ontologyId) as Promise<import('@/types/ontology').LinkTypeItem[]>,
+    enabled: !!ontologyId,
+  })
+  const { data: events = [], error: eventsError } = useQuery({
+    queryKey: ['sim-events', ontologyId, scenarioId, planId],
     queryFn: () => simulationApi.getEvents(ontologyId, scenarioId!) as Promise<any[]>,
     enabled: !!ontologyId && !!scenarioId, refetchInterval: 2000,
+    retry: false, refetchOnMount: 'always',
   })
-  const { data: timeline = [] } = useQuery({
-    queryKey: ['timeline', ontologyId, scenarioId],
+  const { data: timeline = [], error: timelineError } = useQuery({
+    queryKey: ['timeline', ontologyId, scenarioId, planId],
     queryFn: () => simulationApi.getTimeline(ontologyId, scenarioId!) as Promise<any[]>,
     enabled: !!ontologyId && !!scenarioId, refetchInterval: 2000,
+    retry: false, refetchOnMount: 'always',
   })
   const { data: planData } = useQuery({
     queryKey: ['plan', scenarioId, planId],
@@ -70,6 +91,15 @@ export default function SimulationRunPage() {
     ;(instances as ObjectInstance[]).forEach(i => { m[i.id] = i })
     return m
   }, [instances])
+
+  // UUID → LinkType name mapping (for classifying links on the map)
+  const linkTypeMap = useMemo(() => {
+    const m: Record<string, string> = {}
+    ;(linkTypes as import('@/types/ontology').LinkTypeItem[]).forEach(lt => {
+      m[lt.id] = (lt.name_en || lt.name_cn || '').toLowerCase()
+    })
+    return m
+  }, [linkTypes])
 
   const participantIds = scenario?.participant_instance_ids || []
   const hasStarted = scenario?.status !== 'draft'
@@ -118,16 +148,19 @@ export default function SimulationRunPage() {
         targetName: tgt?.name || l.target_instance_id?.slice(0, 8),
         sourceLat: src?.lat || 0, sourceLon: src?.lon || 0,
         targetLat: tgt?.lat || 0, targetLon: tgt?.lon || 0,
-        linkTypeId: l.link_type_id,
+        linkTypeId: l.link_type_name || linkTypeMap[l.link_type_id] || l.link_type_id,
+        count: (l.properties as any)?.count || 1,
       } as MapLink
     })
-  }, [activeTickData, mapEntities])
+  }, [activeTickData, mapEntities, linkTypeMap])
 
   // Trail: all positions of the missile across ticks
   const missileTrail = useMemo(() => {
     const trail: [number, number][] = []
     timeline.forEach((t: any) => {
-      const ms = (t.instance_states || []).find((s: any) => s.instance_name?.includes('导弹') || s.instance_name?.includes('26B'))
+      const ms = (t.instance_states || []).find((s: any) =>
+        s.instance_name?.includes('DF-') || s.instance_name?.includes('CJ-') || s.instance_name?.includes('Decoy')
+      )
       if (ms) trail.push([+(ms.properties?.latitude || 0), +(ms.properties?.longitude || 0)])
     })
     return trail
@@ -137,8 +170,8 @@ export default function SimulationRunPage() {
     if (!ontologyId || !scenarioId) return; setError('')
     try {
       const r = await simulationApi.stepSimulation(ontologyId, scenarioId)
-      qc.invalidateQueries({ queryKey: ['timeline', ontologyId, scenarioId] })
-      qc.invalidateQueries({ queryKey: ['sim-events', ontologyId, scenarioId] })
+      qc.invalidateQueries({ queryKey: ['timeline', ontologyId, scenarioId, planId] })
+      qc.invalidateQueries({ queryKey: ['sim-events', ontologyId, scenarioId, planId] })
       qc.invalidateQueries({ queryKey: ['scenario', ontologyId, scenarioId] })
       if (r.finished) { setAutoRun(false); setViewTick(null) }
     } catch (e: any) { setError(e?.response?.data?.detail || e?.message || '失败'); setAutoRun(false) }
@@ -154,12 +187,26 @@ export default function SimulationRunPage() {
   }, [autoRun, scenario?.status, step])
 
   const handleStart = async () => { if (!ontologyId || !scenarioId) return; setError(''); setViewTick(null)
-    try { await simulationApi.startSimulation(ontologyId, scenarioId); qc.invalidateQueries({ queryKey: ['scenario', ontologyId, scenarioId] }); qc.invalidateQueries({ queryKey: ['timeline', ontologyId, scenarioId] }); qc.invalidateQueries({ queryKey: ['sim-events', ontologyId, scenarioId] }) } catch (e: any) { setError(e?.response?.data?.detail || e?.message || '启动失败') } }
+    try { await simulationApi.startSimulation(ontologyId, scenarioId); qc.invalidateQueries({ queryKey: ['scenario', ontologyId, scenarioId] }); qc.invalidateQueries({ queryKey: ['timeline', ontologyId, scenarioId, planId] }); qc.invalidateQueries({ queryKey: ['sim-events', ontologyId, scenarioId, planId] }) } catch (e: any) { setError(e?.response?.data?.detail || e?.message || '启动失败') } }
   const handlePause = async () => { setAutoRun(false); await simulationApi.pauseSimulation(ontologyId, scenarioId); qc.invalidateQueries({ queryKey: ['scenario', ontologyId, scenarioId] }) }
   const handleResume = async () => { setError('')
     try { await simulationApi.resumeSimulation(ontologyId, scenarioId); qc.invalidateQueries({ queryKey: ['scenario', ontologyId, scenarioId] }) } catch (e: any) { setError(e?.response?.data?.detail || e?.message || '继续失败') } }
   const handleReset = async () => { setAutoRun(false); setError(''); setExpandedTick(null); setViewTick(null)
-    await simulationApi.resetSimulation(ontologyId, scenarioId); qc.invalidateQueries({ queryKey: ['scenario', ontologyId, scenarioId] }); qc.invalidateQueries({ queryKey: ['timeline', ontologyId, scenarioId] }); qc.invalidateQueries({ queryKey: ['sim-events', ontologyId, scenarioId] }) }
+    await simulationApi.resetSimulation(ontologyId, scenarioId); qc.invalidateQueries({ queryKey: ['scenario', ontologyId, scenarioId] }); qc.invalidateQueries({ queryKey: ['timeline', ontologyId, scenarioId, planId] }); qc.invalidateQueries({ queryKey: ['sim-events', ontologyId, scenarioId, planId] }) }
+
+  // 自动播放时间线（只读回放）
+  useEffect(() => {
+    if (!autoPlay || timeline.length === 0) return
+    const maxTick = timeline[timeline.length - 1]?.tick || 0
+    const timer = setInterval(() => {
+      setViewTick(prev => {
+        const next = (prev ?? 0) + 1
+        if (next >= maxTick) { setAutoPlay(false); return maxTick }
+        return next
+      })
+    }, 500)
+    return () => clearInterval(timer)
+  }, [autoPlay, timeline])
 
   const stopLabel = STOP_LABELS[(scenario as any)?.stop_condition || 'max_ticks'] || '到达最大Tick'
 
@@ -177,13 +224,16 @@ export default function SimulationRunPage() {
                 {planName ? <span className="text-purple-600">{planName}</span> : (scenario?.name || '加载...')}
                 {planName && <span className="text-gray-400 font-normal"> @ {scenario?.name}</span>}
               </h2>
-              {planScore && (
-                <div className="text-xs text-gray-500 flex gap-2">
-                  <span>杀伤{((planScore.kill_probability || 0) * 100).toFixed(0)}%</span>
-                  <span>弹药{planScore.ammo_used || 0}发</span>
-                  <span>用时{planScore.time_ticks || 0}tick</span>
+              {planScore ? (
+                <div className="flex gap-1.5 text-xs">
+                  <span className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-bold">{((planScore.kill_probability || 0) * 100).toFixed(0)}% 杀伤</span>
+                  <span className="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold">{planScore.ammo_used || 0}发</span>
+                  <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold">{planScore.time_ticks || 0}tick</span>
+                  <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-bold">效率 {(planScore.efficiency || 0).toFixed(2)}</span>
                 </div>
-              )}
+              ) : planId ? (
+                <div className="text-xs text-gray-400">加载评分中...</div>
+              ) : null}
               <span className={`text-xs px-1.5 py-0.5 rounded whitespace-nowrap ${
                 scenario?.status === 'running' ? 'bg-green-100 text-green-700' :
                 scenario?.status === 'finished' ? 'bg-red-100 text-red-700' :
@@ -199,12 +249,13 @@ export default function SimulationRunPage() {
             </div>
           </div>
           {error && <div className="text-red-500 text-xs">{error}</div>}
+          {(eventsError as any) && <div className="text-red-500 text-xs">事件API错误: {(eventsError as any)?.message || String(eventsError)}</div>}
         </div>
         <div className="flex gap-1.5 flex-shrink-0">
-          {scenario?.status === 'draft' && (
+          {!planId && scenario?.status === 'draft' && (
             <button onClick={handleStart} className="btn-sm bg-green-600 text-white rounded-lg px-3 py-1.5 text-sm font-medium flex items-center gap-1"><Play size={14} />开始</button>
           )}
-          {(scenario?.status === 'running' || scenario?.status === 'paused') && (
+          {!planId && (scenario?.status === 'running' || scenario?.status === 'paused') && (
             <>
               <button onClick={step} className="btn-sm bg-blue-600 text-white rounded-lg px-3 py-1.5 text-sm font-medium flex items-center gap-1"><SkipForward size={14} />步进</button>
               <button onClick={() => setAutoRun(!autoRun)} className={`btn-sm rounded-lg px-2.5 py-1.5 text-sm font-medium flex items-center gap-1 ${autoRun ? 'bg-orange-600 text-white' : 'bg-gray-100 text-gray-700'}`}><Clock size={14} />{autoRun ? '停' : '自动'}</button>
@@ -215,9 +266,18 @@ export default function SimulationRunPage() {
               )}
             </>
           )}
-          {(scenario?.status !== 'draft') && (
-            <button onClick={handleReset} className="btn-sm border rounded-lg px-2.5 py-1.5 text-gray-600 hover:bg-gray-100"><RotateCcw size={14} /></button>
-          )}
+          <div className="flex gap-1.5">
+            {timeline.length > 0 && (
+              <button onClick={() => { setAutoPlay(!autoPlay); if ((viewTick ?? 0) >= (timeline[timeline.length-1]?.tick || 0)) setViewTick(0) }}
+                className={`btn-sm rounded-lg px-2.5 py-1.5 text-xs flex items-center gap-1 ${autoPlay ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                {autoPlay ? <Pause size={12} /> : <Play size={12} />}{autoPlay ? '停止' : '播放'}
+              </button>
+            )}
+            <Link to={`/ontologies/${ontologyId}?tab=simulation&view=plans&scenarioId=${scenarioId}`}
+              className="btn-sm border rounded-lg px-2.5 py-1.5 text-gray-600 hover:bg-gray-100 text-xs flex items-center gap-1">
+              <ArrowLeft size={14} /> 返回
+            </Link>
+          </div>
         </div>
       </div>
 
@@ -232,12 +292,12 @@ export default function SimulationRunPage() {
         </div>
       )}
 
-      {/* 主体: 左 中(地图) 右 */}
+      {/* 主体: 左 | 中(地图) | 右(图谱+问答) */}
       <div className="flex-1 flex gap-2 min-h-0">
-        {/* 左侧面板 */}
-        <div className="w-52 flex-shrink-0 flex flex-col gap-2 min-h-0">
+        {/* 左侧面板: 实体 + 事件 + 活跃关系 */}
+        <div className="w-48 flex-shrink-0 flex flex-col gap-2 min-h-0">
           {/* 参与实体 */}
-          <div className="border rounded-lg flex flex-col overflow-hidden" style={{ maxHeight: '40%' }}>
+          <div className="border rounded-lg flex flex-col overflow-hidden" style={{ maxHeight: '25%' }}>
             <h3 className="text-[11px] font-semibold text-gray-500 uppercase p-2 pb-1 flex items-center gap-1 bg-white border-b sticky top-0 z-10"><Users size={12} />实体</h3>
             <div className="overflow-y-auto p-2 pt-1 space-y-1">
               {participantIds.map(id => {
@@ -248,7 +308,7 @@ export default function SimulationRunPage() {
                 return (
                   <div key={id} className="border rounded p-1.5 text-[11px]">
                     <div className="font-medium truncate">
-                      {inst.name_cn.includes('导弹') ? '🚀' : inst.name_cn.includes('雷达') ? '📡' : '🛡️'} {inst.name_cn}
+                      {getEntityIcon(inst.name_cn)} {inst.name_cn}
                     </div>
                     {hasStarted && keyProps.length > 0 && keyProps.map(([k,v]) => (
                       <div key={k} className="flex justify-between text-[10px]"><span className="text-gray-400">{k}</span><span className="font-mono">{typeof v === 'number' ? v.toFixed(1) : String(v)}</span></div>
@@ -267,8 +327,8 @@ export default function SimulationRunPage() {
             <div className="space-y-1">
               {keyEvents.map((e: any, i: number) => {
                 const isSelected = viewTick !== null && e.tick === viewTick
-                const colors: Record<string, string> = { state_change: '#f59e0b', action_exec: '#8b5cf6', rule_check: '#3b82f6', stop_condition: '#dc2626' }
-                const icons: Record<string, string> = { state_change: '📊', action_exec: '⚡', rule_check: '🔍', stop_condition: '🛑' }
+                const colors: Record<string, string> = { state_change: '#f59e0b', action_exec: '#8b5cf6', rule_check: '#3b82f6', stop_condition: '#dc2626', decision: '#dc2626', link_created: '#22c55e', rule: '#3b82f6', intelligence: '#a855f7' }
+                const icons: Record<string, string> = { state_change: '📊', action_exec: '⚡', rule_check: '🔍', stop_condition: '🛑', decision: '🎯', link_created: '🔗', rule: '🧠', intelligence: '📡' }
                 return (
                   <div key={i} onClick={() => setViewTick(viewTick === e.tick ? null : e.tick)}
                     className={`text-[11px] leading-relaxed cursor-pointer px-1.5 py-0.5 rounded border-l-2 hover:bg-gray-50 ${isSelected ? 'bg-blue-50 border-l-blue-400' : ''}`}
@@ -282,38 +342,76 @@ export default function SimulationRunPage() {
             </div>
           </div>
           </div>
+          {/* 活跃关系 */}
+          <div className="border rounded-lg flex flex-col overflow-hidden flex-1">
+            <h3 className="text-[11px] font-semibold text-gray-500 uppercase p-2 pb-1 flex items-center gap-1 bg-white border-b sticky top-0 z-10"><Link2 size={12} />活跃关系</h3>
+            <div className="overflow-y-auto p-2 pt-1">
+            {mapLinks.length === 0 ? (
+              <div className="text-gray-400 text-[11px] text-center py-2">{hasStarted ? '暂无' : '等待推演'}</div>
+            ) : (
+              <div className="space-y-1">
+                {mapLinks.map((l, i) => {
+                  const lt = (l.linkTypeId || '').toLowerCase()
+                  const isDetect = lt.includes('detect') || l.linkTypeId.includes('探测')
+                  const isIntercept = lt.includes('intercept') || l.linkTypeId.includes('拦截') || lt.includes('fire') || l.linkTypeId.includes('火力')
+                  const isThreat = lt.includes('threat') || l.linkTypeId.includes('威胁')
+                  const linkColor = isDetect ? 'text-blue-600' : isIntercept ? 'text-red-600' : isThreat ? 'text-orange-600' : 'text-gray-600'
+                  const linkLabel = isDetect ? '📡 探测' : isIntercept ? `🛡️ 拦截${(l.count || 0) > 1 ? ` ×${l.count}` : ''}` : isThreat ? '⚠️ 威胁' : '🔗 关系'
+                  return (
+                    <div key={i} className="border rounded p-1 text-[10px]">
+                      <div className={`font-medium ${linkColor}`}>{linkLabel}</div>
+                      <div className="text-gray-400 mt-0.5 truncate">{l.sourceName} → {l.targetName}</div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+            </div>
+          </div>
         </div>
 
         {/* 中间：地图 */}
-        <div className="flex-1 min-w-0 border rounded-lg overflow-hidden">
+        <div className="flex-1 min-w-0 border rounded-lg overflow-hidden relative">
           <SimulationMap entities={mapEntities} links={mapLinks} trail={missileTrail} />
-        </div>
-
-        {/* 右侧：活跃关系 */}
-        <div className="w-48 flex-shrink-0 border rounded-lg p-2 overflow-y-auto">
-          <h3 className="text-[11px] font-semibold text-gray-500 uppercase mb-1.5 flex items-center gap-1"><Link2 size={12} />活跃关系</h3>
-          {mapLinks.length === 0 ? (
-            <div className="text-gray-400 text-[11px] text-center py-4">{hasStarted ? '暂无' : '开始后显示'}</div>
-          ) : (
-            <div className="space-y-1.5">
-              {mapLinks.map((l, i) => {
-                const isDetect = (l.linkTypeId || '').toLowerCase().includes('detect') || (l.linkTypeId || '').includes('探测')
-                const isIntercept = (l.linkTypeId || '').toLowerCase().includes('intercept') || (l.linkTypeId || '').includes('拦截')
-                return (
-                  <div key={i} className="border rounded p-1.5 text-[11px]">
-                    <div className={`font-medium ${isDetect ? 'text-blue-600' : isIntercept ? 'text-red-600' : 'text-gray-600'}`}>
-                      {isDetect ? '📡 探测' : isIntercept ? '🛡️ 拦截' : '🔗 关系'}
-                    </div>
-                    <div className="flex items-center gap-1 text-[10px] text-gray-500 mt-0.5">
-                      <span className="truncate max-w-[60px]">{l.sourceName}</span>
-                      <span>→</span>
-                      <span className="truncate max-w-[60px]">{l.targetName}</span>
-                    </div>
-                  </div>
-                )
-              })}
+          {planId && timeline.length === 0 && (
+            <div className="absolute inset-0 bg-white/90 flex flex-col items-center justify-center z-10">
+              <div className="text-center space-y-3">
+                <RotateCcw size={32} className="mx-auto text-gray-400" />
+                <p className="text-sm text-gray-600">方案推演数据已被重置</p>
+                <button
+                  onClick={async () => {
+                    setReRunning(true)
+                    try {
+                      await plansApi.run(scenarioId!, planId)
+                      qc.invalidateQueries({ queryKey: ['timeline', ontologyId, scenarioId, planId] })
+                      qc.invalidateQueries({ queryKey: ['sim-events', ontologyId, scenarioId, planId] })
+                      qc.invalidateQueries({ queryKey: ['scenario', ontologyId, scenarioId] })
+                    } catch (e: any) {
+                      setError('方案重新执行失败: ' + (e?.message || e))
+                    } finally {
+                      setReRunning(false)
+                    }
+                  }}
+                  disabled={reRunning}
+                  className="px-4 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2"
+                >
+                  {reRunning ? <><Loader2 size={14} className="animate-spin" /> 执行中...</> : <><Play size={14} /> 重新执行方案</>}
+                </button>
+              </div>
             </div>
           )}
+        </div>
+
+        {/* 右侧面板：场景图谱 + 智能问答 */}
+        <div className="w-56 flex-shrink-0 flex flex-col gap-2 min-h-0" style={{ maxWidth: 240 }}>
+          {/* 场景知识图谱 (40%) */}
+          <div style={{ height: '40%' }}>
+            <ScenarioGraph entities={mapEntities} links={mapLinks} height={window.innerHeight * 0.25} />
+          </div>
+          {/* 智能问答 (60%) */}
+          <div className="flex-1 min-h-0">
+            <ScenarioChat scenarioId={scenarioId!} planId={planId} />
+          </div>
         </div>
       </div>
 
@@ -349,7 +447,7 @@ export default function SimulationRunPage() {
         planId={planId}
         currentTick={currentTick}
         hasStarted={hasStarted}
-        onRefresh={() => { qc.invalidateQueries({ queryKey: ['sim-events', ontologyId, scenarioId] }); qc.invalidateQueries({ queryKey: ['timeline', ontologyId, scenarioId] }) }}
+        onRefresh={() => { qc.invalidateQueries({ queryKey: ['sim-events', ontologyId, scenarioId, planId] }); qc.invalidateQueries({ queryKey: ['timeline', ontologyId, scenarioId, planId] }) }}
       />
     </div>
   )
@@ -362,7 +460,7 @@ function IntelPanel({ scenarioId, ontologyId, planId, currentTick, hasStarted, o
   const [text, setText] = useState('')
   const [tick, setTick] = useState(0)
   const [parsingId, setParsingId] = useState<string | null>(null)
-  const [reloading, setReloading] = useState(false)
+  const [applyingId, setApplyingId] = useState<string | null>(null)
   const qc = useQueryClient()
 
   const { data: intelList = [] } = useQuery({

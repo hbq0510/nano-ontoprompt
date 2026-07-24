@@ -30,6 +30,7 @@ from app.routers.v2 import object_actions as object_actions_v2
 from app.routers.v2 import simulation as simulation_v2
 from app.routers.v2 import plans as plans_v2
 from app.routers.v2 import intelligence as intelligence_v2
+from app.routers.v2 import qa as qa_v2
 from app.routers.v2 import database_explorer
 from app.routers.v2 import data_sources as data_sources_v2
 from app.routers import skills
@@ -200,6 +201,7 @@ app.include_router(data_sources_v2.router, prefix="/api/v2/ontologies", tags=["v
 app.include_router(simulation_v2.router, prefix="/api/v2/ontologies", tags=["v2-simulation"])
 app.include_router(plans_v2.router, prefix="/api/v2", tags=["v2-plans"])
 app.include_router(intelligence_v2.router, prefix="/api/v2", tags=["v2-intelligence"])
+app.include_router(qa_v2.router, prefix="/api/v2", tags=["v2-qa"])
 
 def get_db():
     db = SessionLocal()
